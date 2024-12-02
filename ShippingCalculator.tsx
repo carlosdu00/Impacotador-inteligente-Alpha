@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import { ShippingRate } from './types';
 import { fetchShippingRates } from './utils';
+import firebase from './firebaseConfig';
 
 const ShippingCalculator = ({ navigation }: { navigation: any }) => {
   // Definindo valores padrão
@@ -19,10 +20,26 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
       Alert.alert('Erro', 'Por favor, preencha todos os campos');
       return;
     }
-
+  
     setLoading(true);
     try {
       const rates = await fetchShippingRates(originCep, destinationCep, length, width, height, weight, insuranceValue);
+  
+      // Criar um objeto com os dados da consulta
+      const queryData = {
+        originCep,
+        destinationCep,
+        dimensions: { length, width, height },
+        weight,
+        insuranceValue,
+        results: rates,
+        timestamp: Date.now(),
+      };
+  
+      // Salvar no Firebase Realtime Database
+      const newReference = firebase.database().ref('/queries').push();
+      await newReference.set(queryData);
+  
       navigation.navigate('Results', { results: rates });
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível calcular os fretes');
@@ -30,6 +47,7 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
       setLoading(false);
     }
   };
+  
 
   return (
     <View style={styles.container}>
@@ -107,6 +125,7 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
       />
 
       <Button title={loading ? "Calculando..." : "Calcular Frete"} onPress={handleCalculate} disabled={loading} />
+      <Button title="Ver Histórico" onPress={() => navigation.navigate('History')} />
     </View>
   );
 };

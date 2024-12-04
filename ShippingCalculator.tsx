@@ -1,56 +1,90 @@
+// ShippingCalculator.tsx
+
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
-import { ShippingRate } from './types';
+import * as Progress from 'react-native-progress';
+
 import { fetchShippingRates } from './utils';
 import firebase from './firebaseConfig';
 
 const ShippingCalculator = ({ navigation }: { navigation: any }) => {
   // Definindo valores padrão
   const [originCep, setOriginCep] = useState('97050-600');
-  const [destinationCep, setDestinationCep] = useState('97050-600');
-  const [length, setLength] = useState('10');
-  const [width, setWidth] = useState('10');
-  const [height, setHeight] = useState('10');
+  const [destinationCep, setDestinationCep] = useState('01307-002');
+  const [length, setLength] = useState('41');
+  const [width, setWidth] = useState('28');
+  const [height, setHeight] = useState('20');
   const [weight, setWeight] = useState('2');
   const [insuranceValue, setInsuranceValue] = useState('150');
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressText, setProgressText] = useState('');
 
   const handleCalculate = async () => {
     if (!originCep || !destinationCep || !length || !width || !height || !weight || !insuranceValue) {
       Alert.alert('Erro', 'Por favor, preencha todos os campos');
       return;
     }
-  
+
     setLoading(true);
+    setProgress(0);
+    setProgressText('');
+
     try {
-      const rates = await fetchShippingRates(originCep, destinationCep, length, width, height, weight, insuranceValue);
-  
-      // Criar um objeto com os dados da consulta
+      const requestKey = `${originCep}-${destinationCep}-${length}-${width}-${height}-${weight}-${insuranceValue}`;
+      const cachedResultRef = firebase.database().ref(`/cachedResults/${requestKey}`);
+      const snapshot = await cachedResultRef.once('value');
+      const data = snapshot.val();
+      const oneDay = 24 * 60 * 60 * 1000;
+      const now = Date.now();
+
+      if (data && now - data.timestamp < oneDay) {
+        // Dados do cache
+        navigation.navigate('Results', { results: data.results, fromCache: true });
+      } else {
+        // Nova consulta à API
+        const rates = await fetchShippingRates(
+          originCep,
+          destinationCep,
+          length,
+          width,
+          height,
+          weight,
+          insuranceValue,
+          (progressValue, completedRequests, totalRequests) => {
+            setProgress(progressValue);
+            setProgressText(`Processados: ${completedRequests}/${totalRequests}`);
+          }
+        );
+        // Salvar resultados no cache
+        await cachedResultRef.set({ results: rates, timestamp: now });
+        navigation.navigate('Results', { results: rates, fromCache: false });
+      }
+
+      // Salvar a consulta no histórico (sem os resultados detalhados)
       const queryData = {
         originCep,
         destinationCep,
         dimensions: { length, width, height },
         weight,
         insuranceValue,
-        results: rates,
-        timestamp: Date.now(),
+        timestamp: now,
       };
-  
-      // Salvar no Firebase Realtime Database
+
       const newReference = firebase.database().ref('/queries').push();
       await newReference.set(queryData);
-  
-      navigation.navigate('Results', { results: rates });
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível calcular os fretes');
+      console.error('Erro:', error);
     } finally {
       setLoading(false);
     }
   };
-  
 
   return (
+
     <View style={styles.container}>
+      <Text style={styles.title}>Calculadora de Frete</Text>
       <Text style={styles.label}>CEP Origem:</Text>
       <TextInput
         style={styles.input}
@@ -124,8 +158,28 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
         placeholder="Valor Segurado"
       />
 
-      <Button title={loading ? "Calculando..." : "Calcular Frete"} onPress={handleCalculate} disabled={loading} />
-      <Button title="Ver Histórico" onPress={() => navigation.navigate('History')} />
+{loading && (
+        <View style={styles.progressContainer}>
+          <Progress.Bar progress={progress} width={null} />
+          <Text style={styles.progressText}>{progressText}</Text>
+        </View>
+      )}
+
+      <View style={styles.buttonContainer}>
+        <Button
+          title={loading ? 'Calculando...' : 'Calcular Frete'}
+          onPress={handleCalculate}
+          disabled={loading}
+        />
+      </View>
+
+      <View style={styles.buttonContainer}>
+        <Button title="Ver Histórico" onPress={() => navigation.navigate('History')} />
+      </View>
+
+      <View style={styles.buttonContainer}>
+        <Button title="Gerenciar API" onPress={() => navigation.navigate('ApiManager')} />
+      </View>
     </View>
   );
 };
@@ -156,6 +210,24 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     width: '48%', // Cada campo ocupa 48% da largura da tela
+  },
+  progressContainer: {
+    marginTop: 20,
+  },
+  progressText: {
+    textAlign: 'center',
+    marginTop: 5,
+    color: '#333',
+  },
+  buttonContainer: {
+    marginTop: 10,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginVertical: 20,
+    color: '#333',
   },
 });
 

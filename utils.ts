@@ -5,6 +5,11 @@ import { ShippingRate } from './types';
 
 const melhorEnvioToken = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiNDBjNTAzNmY4NDEzY2VmMTRiMmM1NjkyY2I2MDAwZTFkNGM1ZDMzNDA4ZTFlZTNlN2YxZGExNTc3ODdjZWY5ZmI1YzFhNDU2OWUyODYzOTciLCJpYXQiOjE3MzA4NDc5NjcuODU4NzMxLCJuYmYiOjE3MzA4NDc5NjcuODU4NzM0LCJleHAiOjE3NjIzODM5NjcuODQ1MjcyLCJzdWIiOiI5YjRiZWY2NC04MGQyLTQ0ZTQtOGNmZi1iMjIxYjIxOGM2NjYiLCJzY29wZXMiOlsic2hpcHBpbmctY2FsY3VsYXRlIl19.1WnxBEbYi6SLNNyJxv1J6Aod5yNZHpUYwqNU_4yTImeFQzRm6IreigqjWIBVmdgiE3RSlhefTKW29_z8j5MSyju5MCFmZ6gTmP1w1f-hFQyaccAKajZzDlBqs12LXSdgDMLppu8_R5u6bdv4wIlIBxxrbF-bq-u2un2RhPJf1aZI-xOnx7UKoKoRZH-9xf_oqfXobYfwQaoUGRMC5eyLzMmETfg2qeiFeVTV-kwbEjVvqe6G-pPP4JaMI1q7JqK0Sdn6KtKggmTE3TSw7gh9WJEZ2euIZ1MxQxo4NXcjFzli-J13N-KuIldI0D85O_mSjnhylZtEg3tucMBGaWmHNzJ_C5tkGvWxj7iPs0VpvUq-x0jdO2e5f0N7iWUxZkYepBtwDOrxJlUpsP7U6CvORFj2gD2Ec5vBcUR5FkFvSPyhTvp7GvYvF5Xb2fKMING6mGyUFgk7sAaFmikEtOejPVgbv7gwPYd4pubBJb2qc0IBtkI9j-G84w_cxbsBhMrw0EnCW3u88OmwgW9eFHEnGdM9L25uWyphgOwwJPWCu-BOal30Elo5nUZ7BxN1qJBKcCBBsi5NanIJbouKWK7HqgDqKVk2HYkXIo_Cmtp-CfCtzyznj9A8URrCgC45oHHypOEhGuZ71ZEFQh0WZXSXZAoLnejvmPZ6DKhnsvicpmo'; // Substitua pelo seu token do Melhor Envio
 
+// Gerenciamento de requisições
+let requestTimestamps: number[] = [];
+const MAX_REQUESTS_PER_MINUTE = 250;
+const REQUEST_THRESHOLD = 200;
+
 export const fetchShippingRates = async (
   originCep: string,
   destinationCep: string,
@@ -12,9 +17,16 @@ export const fetchShippingRates = async (
   width: string,
   height: string,
   weight: string,
-  insuranceValue: string
+  insuranceValue: string,
+  onProgress?: (progress: number, completedRequests: number, totalRequests: number) => void
 ): Promise<ShippingRate[]> => {
-  const deviations = [-2, -1, 0, 1, 2];
+  const deviations = [-3, -2, -1, 0, 1, 2, 3];
+
+  const originalDimensions = {
+    length: +length,
+    width: +width,
+    height: +height,
+  };
 
   const dimensionVariations: {
     length: number;
@@ -41,6 +53,9 @@ export const fetchShippingRates = async (
     }
   }
 
+  const totalRequests = dimensionVariations.length;
+  let completedRequests = 0;
+
   const allResults: ShippingRate[] = [];
 
   const headers = {
@@ -55,6 +70,17 @@ export const fetchShippingRates = async (
 
   for (let i = 0; i < dimensionVariations.length; i += MAX_CONCURRENT_REQUESTS) {
     const chunk = dimensionVariations.slice(i, i + MAX_CONCURRENT_REQUESTS);
+
+    // Gerenciar o contador de requisições
+    const now = Date.now();
+    requestTimestamps = requestTimestamps.filter((timestamp) => now - timestamp < 60000);
+
+    if (requestTimestamps.length >= REQUEST_THRESHOLD) {
+      // Pausar até que seja seguro continuar
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      i -= MAX_CONCURRENT_REQUESTS; // Repetir o lote atual após a pausa
+      continue;
+    }
 
     const promises = chunk.map(async (dim) => {
       const payload = {
@@ -88,11 +114,20 @@ export const fetchShippingRates = async (
               ...item,
               deviation: dim.deviation,
               totalSize,
+              originalDimensions,
             };
           })
         );
       } catch (error) {
         console.error('Erro na solicitação:', error);
+      } finally {
+        // Atualizar contador de requisições
+        requestTimestamps.push(Date.now());
+        completedRequests++;
+        if (onProgress) {
+          const progress = completedRequests / totalRequests;
+          onProgress(progress, completedRequests, totalRequests);
+        }
       }
     });
 
@@ -100,13 +135,9 @@ export const fetchShippingRates = async (
   }
 
   // Separar resultados disponíveis e indisponíveis
-  const availableResults = allResults.filter(
-    (item) => item.price && !item.error
-  );
+  const availableResults = allResults.filter((item) => item.price && !item.error);
 
-  const unavailableResults = allResults.filter(
-    (item) => !item.price || item.error
-  );
+  const unavailableResults = allResults.filter((item) => !item.price || item.error);
 
   // Ordenar resultados disponíveis
   availableResults.sort((a, b) => {

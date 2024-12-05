@@ -2,14 +2,18 @@
 
 import axios from 'axios';
 import { ShippingRate } from './types';
-import { EXPO_melhorEnvioToken } from "@env";
-
-const melhorEnvioToken = EXPO_melhorEnvioToken
+// Importe suas variáveis de ambiente conforme necessário
 
 // Gerenciamento de requisições
 let requestTimestamps: number[] = [];
 const MAX_REQUESTS_PER_MINUTE = 250;
 const REQUEST_THRESHOLD = 200;
+
+export const getCurrentRequestCount = () => {
+  const now = Date.now();
+  requestTimestamps = requestTimestamps.filter((timestamp) => now - timestamp < 60000);
+  return requestTimestamps.length;
+};
 
 export const fetchShippingRates = async (
   originCep: string,
@@ -61,7 +65,7 @@ export const fetchShippingRates = async (
 
   const headers = {
     Accept: 'application/json',
-    Authorization: `Bearer ${melhorEnvioToken}`,
+    Authorization: `Bearer SEU_TOKEN_AQUI`, // Substitua pelo seu token
     'Content-Type': 'application/json',
     'User-Agent': 'Aplicação',
   };

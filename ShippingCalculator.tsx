@@ -1,10 +1,10 @@
 // ShippingCalculator.tsx
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import * as Progress from 'react-native-progress';
 
-import { fetchShippingRates } from './utils';
+import { fetchShippingRates, getCurrentRequestCount } from './utils';
 import firebase from './firebaseConfig';
 
 const ShippingCalculator = ({ navigation }: { navigation: any }) => {
@@ -19,6 +19,17 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState('');
+  const [apiRequestCount, setApiRequestCount] = useState(0);
+
+  useEffect(() => {
+    // Atualizar o contador de requisições a cada segundo
+    const interval = setInterval(() => {
+      const currentCount = getCurrentRequestCount();
+      setApiRequestCount(currentCount);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const handleCalculate = async () => {
     if (!originCep || !destinationCep || !length || !width || !height || !weight || !insuranceValue) {
@@ -82,9 +93,13 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
   };
 
   return (
-
     <View style={styles.container}>
-      <Text style={styles.title}>Calculadora de Frete</Text>
+      {/* Contador de requisições da API */}
+      <View style={styles.apiCounterContainer}>
+        <Text style={styles.apiCounterText}>API: {apiRequestCount}/250</Text>
+      </View>
+
+      {/* Campos de entrada */}
       <Text style={styles.label}>CEP Origem:</Text>
       <TextInput
         style={styles.input}
@@ -172,14 +187,6 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
           disabled={loading}
         />
       </View>
-
-      <View style={styles.buttonContainer}>
-        <Button title="Ver Histórico" onPress={() => navigation.navigate('History')} />
-      </View>
-
-      <View style={styles.buttonContainer}>
-        <Button title="Gerenciar API" onPress={() => navigation.navigate('ApiManager')} />
-      </View>
     </View>
   );
 };
@@ -189,6 +196,15 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     justifyContent: 'flex-start',
+  },
+  apiCounterContainer: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+  },
+  apiCounterText: {
+    fontSize: 12,
+    color: '#555',
   },
   label: {
     marginTop: 10,
@@ -209,7 +225,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   inputContainer: {
-    width: '48%', // Cada campo ocupa 48% da largura da tela
+    width: '48%',
   },
   progressContainer: {
     marginTop: 20,

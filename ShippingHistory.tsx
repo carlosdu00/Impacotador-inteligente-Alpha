@@ -48,7 +48,6 @@ const ShippingHistory = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Histórico de Consultas</Text>
       {loading ? (
         <Text>Carregando...</Text>
       ) : (

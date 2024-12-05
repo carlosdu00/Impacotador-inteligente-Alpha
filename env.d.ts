@@ -1,3 +1,4 @@
+// env.d.ts
 declare module '@env' {
     export const EXPO_melhorEnvioToken: string;
     export const EXPO_FIREBASE_API_KEY: string;

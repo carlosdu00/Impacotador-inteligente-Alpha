@@ -27,8 +27,4 @@ const firebaseConfig = {
 if (!firebase.apps.length) {
   firebase.initializeApp(firebaseConfig);
 }
-
- console.log("o aoutput é")
-  console.log(firebaseConfig.databaseURL)
-
 export default firebase;

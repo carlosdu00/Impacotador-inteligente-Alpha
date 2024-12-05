@@ -2,7 +2,7 @@
 
 import axios from 'axios';
 import { ShippingRate } from './types';
-import{EXPO_melhorEnvioToken} from "@env";
+import { EXPO_melhorEnvioToken } from "@env";
 
 const melhorEnvioToken = EXPO_melhorEnvioToken
 

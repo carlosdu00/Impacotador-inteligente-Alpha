@@ -158,7 +158,7 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
         placeholder="Valor Segurado"
       />
 
-{loading && (
+      {loading && (
         <View style={styles.progressContainer}>
           <Progress.Bar progress={progress} width={null} />
           <Text style={styles.progressText}>{progressText}</Text>

@@ -1,8 +1,6 @@
-// ShippingHistory.tsx
-
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
-import firebase from './firebaseConfig';
+import firebase from '../services/firebaseConfig';
 
 const ShippingHistory = () => {
   const [queries, setQueries] = useState<any[]>([]);
@@ -16,7 +14,6 @@ const ShippingHistory = () => {
       .on('value', (snapshot) => {
         const data = snapshot.val();
         if (data) {
-          // Transformar o objeto em um array
           const queriesArray = Object.keys(data).map((key) => ({
             id: key,
             ...data[key],
@@ -29,7 +26,6 @@ const ShippingHistory = () => {
         setLoading(false);
       });
 
-    // Limpar o listener quando o componente desmontar
     return () => firebase.database().ref('/queries').off('value', onValueChange);
   }, []);
 

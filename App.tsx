@@ -1,14 +1,12 @@
-// App.tsx
-
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 
-import ShippingCalculator from './ShippingCalculator';
-import ShippingResults from './ShippingResults';
-import ShippingHistory from './ShippingHistory';
-import ApiManager from './ApiManager';
+import ShippingCalculator from './src/screens/ShippingCalculator';
+import ShippingResults from './src/screens/ShippingResults';
+import ShippingHistory from './src/screens/ShippingHistory';
+import ApiManager from './src/screens/ApiManager';
 
 const Stack = createStackNavigator();
 const Drawer = createDrawerNavigator();

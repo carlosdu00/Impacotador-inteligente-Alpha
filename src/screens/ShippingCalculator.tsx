@@ -1,11 +1,9 @@
-// ShippingCalculator.tsx
-
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import * as Progress from 'react-native-progress';
 
-import { fetchShippingRates, getCurrentRequestCount } from './utils';
-import firebase from './firebaseConfig';
+import { fetchShippingRates, getCurrentRequestCount } from '../utils/utils';
+import firebase from '../services/firebaseConfig';
 
 const ShippingCalculator = ({ navigation }: { navigation: any }) => {
   // Definindo valores padrão
@@ -72,7 +70,7 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
         navigation.navigate('Results', { results: rates, fromCache: false });
       }
 
-      // Salvar a consulta no histórico (sem os resultados detalhados)
+      // Salvar a consulta no histórico
       const queryData = {
         originCep,
         destinationCep,
@@ -94,7 +92,7 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
 
   return (
     <View style={styles.container}>
-      {/* Contador de requisições da API */}
+      {/* Contador requisições da API */}
       <View style={styles.apiCounterContainer}>
         <Text style={styles.apiCounterText}>API: {apiRequestCount}/250</Text>
       </View>

@@ -1,5 +1,3 @@
-// ShippingResults.tsx
-
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -15,7 +13,7 @@ import {
   TextInput,
   Button,
 } from 'react-native';
-import { ShippingRate } from './types';
+import { ShippingRate } from '../types/types';
 
 const ShippingResults = ({ route }: { route: any }) => {
   const { results, fromCache }: { results: ShippingRate[]; fromCache: boolean } = route.params;
@@ -91,7 +89,7 @@ const ShippingResults = ({ route }: { route: any }) => {
   };
 
   const getDeviationColor = (value: number) => {
-    // Mapear -3 a +3 para uma escala de vermelho a verde
+    // Degrade d vermelho para verde das variaçoes
     const colors = ['#ff0000', '#ff6666', '#ffcccc', '#cccccc', '#ccffcc', '#66ff66', '#00ff00'];
     return colors[value + 3];
   };

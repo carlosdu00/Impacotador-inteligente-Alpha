@@ -1,5 +1,3 @@
-// types.ts
-
 export interface ShippingRate {
   id: string;
   name: string;

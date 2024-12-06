@@ -1,5 +1,3 @@
-// firebaseConfig.ts
-
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/database';
 import {
@@ -12,7 +10,6 @@ import {
   EXPO_FIREBASE_APP_ID
 } from '@env';
 
-// Substitua pelos valores do seu objeto firebaseConfig
 const firebaseConfig = {
   apiKey: EXPO_FIREBASE_API_KEY,
   authDomain: EXPO_FIREBASE_AUTH_DOMAIN,

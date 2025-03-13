@@ -1,12 +1,15 @@
+// ShippingCalculator.tsx
+
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import * as Progress from 'react-native-progress';
+import MultiSlider from '@ptomasroos/react-native-multi-slider';
 
 import { fetchShippingRates, getCurrentRequestCount } from '../utils/utils';
 import firebase from '../services/firebaseConfig';
 
 const ShippingCalculator = ({ navigation }: { navigation: any }) => {
-  // Definindo valores padrão
+  // Valores padrão dos campos
   const [originCep, setOriginCep] = useState('97050-600');
   const [destinationCep, setDestinationCep] = useState('01307-002');
   const [length, setLength] = useState('41');
@@ -19,13 +22,15 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
   const [progressText, setProgressText] = useState('');
   const [apiRequestCount, setApiRequestCount] = useState(0);
 
+  // Estados para o intervalo de variações (slider duplo)
+  const [sliderValues, setSliderValues] = useState<[number, number]>([-5, 5]);
+
   useEffect(() => {
     // Atualizar o contador de requisições a cada segundo
     const interval = setInterval(() => {
       const currentCount = getCurrentRequestCount();
       setApiRequestCount(currentCount);
     }, 1000);
-
     return () => clearInterval(interval);
   }, []);
 
@@ -40,7 +45,7 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
     setProgressText('');
 
     try {
-      const requestKey = `${originCep}-${destinationCep}-${length}-${width}-${height}-${weight}-${insuranceValue}`;
+      const requestKey = `${originCep}-${destinationCep}-${length}-${width}-${height}-${weight}-${insuranceValue}-${sliderValues[0]}-${sliderValues[1]}`;
       const cachedResultRef = firebase.database().ref(`/cachedResults/${requestKey}`);
       const snapshot = await cachedResultRef.once('value');
       const data = snapshot.val();
@@ -49,9 +54,13 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
 
       if (data && now - data.timestamp < oneDay) {
         // Dados do cache
-        navigation.navigate('Results', { results: data.results, fromCache: true });
+        navigation.navigate('Results', { 
+          results: data.results, 
+          fromCache: true,
+          deviationRange: { min: sliderValues[0], max: sliderValues[1] }
+        });
       } else {
-        // Nova consulta à API
+        // Nova consulta à API com o intervalo definido pelo usuário
         const rates = await fetchShippingRates(
           originCep,
           destinationCep,
@@ -60,6 +69,8 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
           height,
           weight,
           insuranceValue,
+          sliderValues[0],
+          sliderValues[1],
           (progressValue, completedRequests, totalRequests) => {
             setProgress(progressValue);
             setProgressText(`Processados: ${completedRequests}/${totalRequests}`);
@@ -67,7 +78,11 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
         );
         // Salvar resultados no cache
         await cachedResultRef.set({ results: rates, timestamp: now });
-        navigation.navigate('Results', { results: rates, fromCache: false });
+        navigation.navigate('Results', { 
+          results: rates, 
+          fromCache: false,
+          deviationRange: { min: sliderValues[0], max: sliderValues[1] }
+        });
       }
 
       // Salvar a consulta no histórico
@@ -77,6 +92,7 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
         dimensions: { length, width, height },
         weight,
         insuranceValue,
+        deviationRange: { min: sliderValues[0], max: sliderValues[1] },
         timestamp: now,
       };
 
@@ -92,7 +108,7 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
 
   return (
     <View style={styles.container}>
-      {/* Contador requisições da API */}
+      {/* Contador de requisições da API */}
       <View style={styles.apiCounterContainer}>
         <Text style={styles.apiCounterText}>API: {apiRequestCount}/250</Text>
       </View>
@@ -169,6 +185,21 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
         onChangeText={setInsuranceValue}
         keyboardType="numeric"
         placeholder="Valor Segurado"
+      />
+
+      {/* Slider de variação */}
+      <Text style={styles.label}>
+        Intervalo de Variação (cm): {sliderValues[0]} a {sliderValues[1]}
+      </Text>
+      <MultiSlider
+        values={[sliderValues[0], sliderValues[1]]}
+        sliderLength={280}
+        onValuesChange={(values: number[]) => setSliderValues([values[0], values[1]])}
+        min={-5}
+        max={5}
+        step={1}
+        allowOverlap={false}
+        snapped
       />
 
       {loading && (

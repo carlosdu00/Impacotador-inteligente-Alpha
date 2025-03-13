@@ -1,3 +1,5 @@
+// ShippingResults.tsx
+
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -16,13 +18,14 @@ import {
 import { ShippingRate } from '../types/types';
 
 const ShippingResults = ({ route }: { route: any }) => {
-  const { results, fromCache }: { results: ShippingRate[]; fromCache: boolean } = route.params;
+  const { results, fromCache, deviationRange } : { results: ShippingRate[]; fromCache: boolean; deviationRange: { min: number; max: number } } = route.params;
   const [filteredResults, setFilteredResults] = useState<ShippingRate[]>([]);
   const [showUnavailable, setShowUnavailable] = useState(false);
+  // Os filtros de variação terão como valor inicial o intervalo definido na tela de consulta
+  const [minDeviation, setMinDeviation] = useState<number>(deviationRange.min);
+  const [maxDeviation, setMaxDeviation] = useState<number>(deviationRange.max);
   const [selectedCarriers, setSelectedCarriers] = useState<string[]>([]);
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
-  const [maxDeviation, setMaxDeviation] = useState(3);
-  const [minDeviation, setMinDeviation] = useState(-3);
 
   useEffect(() => {
     if (fromCache) {
@@ -44,7 +47,7 @@ const ShippingResults = ({ route }: { route: any }) => {
       filtered = filtered.filter((item) => selectedCarriers.includes(item.company.name));
     }
 
-    // Filtrar por variação
+    // Filtrar por variação: somente considerar os desvios que estejam dentro do intervalo definido
     filtered = filtered.filter((item) => {
       const deviations = [item.deviation.length, item.deviation.width, item.deviation.height];
       return deviations.every((dev) => dev >= minDeviation && dev <= maxDeviation);
@@ -73,7 +76,7 @@ const ShippingResults = ({ route }: { route: any }) => {
         )
     );
 
-    // Continuar com a ordenação atual para os demais resultados
+    // Ordenar os demais resultados
     filtered.sort((a, b) => {
       const priceA = parseFloat(a.price);
       const priceB = parseFloat(b.price);
@@ -89,14 +92,13 @@ const ShippingResults = ({ route }: { route: any }) => {
   };
 
   const getDeviationColor = (value: number) => {
-    // Degrade d vermelho para verde das variaçoes
+    // Degrade de vermelho para verde para as variações
     const colors = ['#ff0000', '#ff6666', '#ffcccc', '#cccccc', '#ccffcc', '#66ff66', '#00ff00'];
-    return colors[value + 3];
+    return colors[value - deviationRange.min] || '#cccccc';
   };
 
   const renderItem = ({ item, index }: { item: ShippingRate; index: number }) => {
     const isUnavailable = !item.price || item.error;
-
     return (
       <View>
         {index === 0 && (
@@ -129,7 +131,7 @@ const ShippingResults = ({ route }: { route: any }) => {
             </Text>
           </View>
           <View style={styles.deviationContainer}>
-            {['C', 'L', 'A'].map((label, index) => {
+            {['C', 'L', 'A'].map((label, idx) => {
               const deviationValues = [
                 item.deviation.length,
                 item.deviation.width,
@@ -140,19 +142,19 @@ const ShippingResults = ({ route }: { route: any }) => {
                 item.originalDimensions.width,
                 item.originalDimensions.height,
               ];
-              const finalValue = originalValues[index] + deviationValues[index];
+              const finalValue = originalValues[idx] + deviationValues[idx];
               return (
-                <View key={index} style={styles.deviationBoxContainer}>
+                <View key={idx} style={styles.deviationBoxContainer}>
                   <Text style={styles.deviationLabel}>{label}</Text>
                   <Text
                     style={[
                       styles.deviationBox,
-                      { backgroundColor: getDeviationColor(deviationValues[index]) },
+                      { backgroundColor: getDeviationColor(deviationValues[idx]) },
                     ]}
                   >
-                    {deviationValues[index] >= 0
-                      ? `+${deviationValues[index]}`
-                      : `${deviationValues[index]}`}
+                    {deviationValues[idx] >= 0
+                      ? `+${deviationValues[idx]}`
+                      : `${deviationValues[idx]}`}
                   </Text>
                   <Text style={styles.deviationValue}>{finalValue} cm</Text>
                 </View>
@@ -203,7 +205,11 @@ const ShippingResults = ({ route }: { route: any }) => {
               style={styles.filterInput}
               keyboardType="numeric"
               value={maxDeviation.toString()}
-              onChangeText={(text) => setMaxDeviation(parseInt(text) || 0)}
+              onChangeText={(text) => {
+                const val = parseInt(text) || deviationRange.max;
+                // Garantir que o valor não exceda o máximo definido na consulta
+                setMaxDeviation(val > deviationRange.max ? deviationRange.max : val);
+              }}
             />
 
             <Text style={styles.filterLabel}>Variação Mínima</Text>
@@ -211,7 +217,11 @@ const ShippingResults = ({ route }: { route: any }) => {
               style={styles.filterInput}
               keyboardType="numeric"
               value={minDeviation.toString()}
-              onChangeText={(text) => setMinDeviation(parseInt(text) || 0)}
+              onChangeText={(text) => {
+                const val = parseInt(text) || deviationRange.min;
+                // Garantir que o valor não seja menor que o mínimo definido na consulta
+                setMinDeviation(val < deviationRange.min ? deviationRange.min : val);
+              }}
             />
 
             {/* Filtros de Transportadoras */}

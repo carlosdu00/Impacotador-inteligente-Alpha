@@ -4,17 +4,19 @@ import axios from 'axios';
 import { ShippingRate } from '../types/types';
 import { EXPO_melhorEnvioToken } from "@env";
 
-const melhorEnvioToken = EXPO_melhorEnvioToken
+const melhorEnvioToken = EXPO_melhorEnvioToken;
 
 // Gerenciamento de requisições
 let requestTimestamps: number[] = [];
 const MAX_REQUESTS_PER_MINUTE = 250;
 const REQUEST_THRESHOLD = 200;
+
 export const getCurrentRequestCount = () => {
   const now = Date.now();
   requestTimestamps = requestTimestamps.filter((timestamp) => now - timestamp < 60000);
   return requestTimestamps.length;
 };
+
 export const fetchShippingRates = async (
   originCep: string,
   destinationCep: string,
@@ -23,9 +25,15 @@ export const fetchShippingRates = async (
   height: string,
   weight: string,
   insuranceValue: string,
+  minDeviation: number,
+  maxDeviation: number,
   onProgress?: (progress: number, completedRequests: number, totalRequests: number) => void
 ): Promise<ShippingRate[]> => {
-  const deviations = [-3, -2, -1, 0, 1, 2, 3];
+  // Gerar o array de desvios com base no intervalo definido
+  const deviations: number[] = [];
+  for (let d = minDeviation; d <= maxDeviation; d++) {
+    deviations.push(d);
+  }
 
   const originalDimensions = {
     length: +length,
@@ -40,7 +48,7 @@ export const fetchShippingRates = async (
     deviation: { length: number; width: number; height: number };
   }[] = [];
 
-  // Gerar todas as combinações de desvios
+  // Gerar todas as combinações de desvios usando o intervalo definido
   for (const dLength of deviations) {
     for (const dWidth of deviations) {
       for (const dHeight of deviations) {
@@ -60,7 +68,6 @@ export const fetchShippingRates = async (
 
   const totalRequests = dimensionVariations.length;
   let completedRequests = 0;
-
   const allResults: ShippingRate[] = [];
 
   const headers = {
@@ -141,7 +148,6 @@ export const fetchShippingRates = async (
 
   // Separar resultados disponíveis e indisponíveis
   const availableResults = allResults.filter((item) => item.price && !item.error);
-
   const unavailableResults = allResults.filter((item) => !item.price || item.error);
 
   // Ordenar resultados disponíveis

@@ -14,6 +14,7 @@ import {
   Switch,
   Button,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import RangeSlider from '../components/RangeSlider';
 import { ShippingRate } from '../types/types';
 
@@ -26,13 +27,33 @@ const ShippingResults = ({ route }: { route: any }) => {
   
   const [filteredResults, setFilteredResults] = useState<ShippingRate[]>([]);
   const [showUnavailable, setShowUnavailable] = useState(false);
+  // Estado para transportadoras selecionadas; essas preferências serão carregadas e salvas via AsyncStorage
   const [selectedCarriers, setSelectedCarriers] = useState<string[]>([]);
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
   
   // Estados locais para o slider na modal (RangeSlider)
   const [modalSliderValues, setModalSliderValues] = useState<[number, number]>([deviationRange.min, deviationRange.max]);
 
-  // Exibe o alerta de cache apenas uma vez na montagem do componente
+  // Carregar preferências de transportadoras salvas
+  useEffect(() => {
+    const loadCarrierPreferences = async () => {
+      try {
+        const storedCarriers = await AsyncStorage.getItem('selectedCarriers');
+        if (storedCarriers !== null) {
+          setSelectedCarriers(JSON.parse(storedCarriers));
+        } else if (results && results.length > 0) {
+          // Se não houver preferências salvas, ativa todas as transportadoras dos resultados
+          const carriers = Array.from(new Set(results.map((item) => item.company.name)));
+          setSelectedCarriers(carriers);
+        }
+      } catch (error) {
+        console.error('Error loading selected carriers:', error);
+      }
+    };
+    loadCarrierPreferences();
+  }, [results]);
+
+  // Exibe o alerta de cache apenas uma vez na montagem do componente e aplica os filtros
   useEffect(() => {
     if (fromCache) {
       Alert.alert('Aviso', 'Os dados foram carregados do cache.');
@@ -195,11 +216,17 @@ const ShippingResults = ({ route }: { route: any }) => {
     setIsFilterModalVisible(true);
   };
 
-  const applyModalFilters = () => {
+  const applyModalFilters = async () => {
     // Atualiza os valores globais e aplica os filtros
     setGlobalMinDeviation(modalSliderValues[0]);
     setGlobalMaxDeviation(modalSliderValues[1]);
     setIsFilterModalVisible(false);
+    // Salva as preferências de transportadoras para futuras pesquisas
+    try {
+      await AsyncStorage.setItem('selectedCarriers', JSON.stringify(selectedCarriers));
+    } catch (error) {
+      console.error('Error saving selected carriers:', error);
+    }
   };
 
   const closeFilterModal = () => {

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import * as Progress from 'react-native-progress';
-import MultiSlider from '@ptomasroos/react-native-multi-slider';
+import RangeSlider from '../components/RangeSlider';
 
 import { fetchShippingRates, getCurrentRequestCount } from '../utils/utils';
 import firebase from '../services/firebaseConfig';
@@ -22,7 +22,7 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
   const [progressText, setProgressText] = useState('');
   const [apiRequestCount, setApiRequestCount] = useState(0);
 
-  // Estados para o intervalo de variações (slider duplo)
+  // Estado do slider para variação, utilizando o componente RangeSlider
   const [sliderValues, setSliderValues] = useState<[number, number]>([-5, 5]);
 
   useEffect(() => {
@@ -187,19 +187,13 @@ const ShippingCalculator = ({ navigation }: { navigation: any }) => {
         placeholder="Valor Segurado"
       />
 
-      {/* Slider de variação */}
-      <Text style={styles.label}>
-        Intervalo de Variação (cm): {sliderValues[0]} a {sliderValues[1]}
-      </Text>
-      <MultiSlider
-        values={[sliderValues[0], sliderValues[1]]}
-        sliderLength={280}
-        onValuesChange={(values: number[]) => setSliderValues([values[0], values[1]])}
+      {/* RangeSlider para intervalo de variação */}
+      <Text style={styles.label}>Intervalo de Variação (cm):</Text>
+      <RangeSlider
+        values={sliderValues}
         min={-5}
         max={5}
-        step={1}
-        allowOverlap={false}
-        snapped
+        onValuesChange={(values: number[]) => setSliderValues([values[0], values[1]])}
       />
 
       {loading && (
@@ -266,13 +260,6 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     marginTop: 10,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginVertical: 20,
-    color: '#333',
   },
 });
 

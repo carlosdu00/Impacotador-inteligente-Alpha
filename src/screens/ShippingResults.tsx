@@ -12,26 +12,34 @@ import {
   Modal,
   ScrollView,
   Switch,
-  TextInput,
   Button,
 } from 'react-native';
+import RangeSlider from '../components/RangeSlider';
 import { ShippingRate } from '../types/types';
 
 const ShippingResults = ({ route }: { route: any }) => {
   const { results, fromCache, deviationRange } : { results: ShippingRate[]; fromCache: boolean; deviationRange: { min: number; max: number } } = route.params;
+  
+  // Estados globais para os filtros de variação (aplicados após clicar no botão "Aplicar Filtros")
+  const [globalMinDeviation, setGlobalMinDeviation] = useState<number>(deviationRange.min);
+  const [globalMaxDeviation, setGlobalMaxDeviation] = useState<number>(deviationRange.max);
+  
   const [filteredResults, setFilteredResults] = useState<ShippingRate[]>([]);
   const [showUnavailable, setShowUnavailable] = useState(false);
-  const [minDeviation, setMinDeviation] = useState<number>(deviationRange.min);
-  const [maxDeviation, setMaxDeviation] = useState<number>(deviationRange.max);
   const [selectedCarriers, setSelectedCarriers] = useState<string[]>([]);
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
+  
+  // Estados locais para o slider na modal (RangeSlider)
+  const [modalSliderValues, setModalSliderValues] = useState<[number, number]>([deviationRange.min, deviationRange.max]);
 
+  // Exibe o alerta de cache apenas uma vez na montagem do componente
   useEffect(() => {
     if (fromCache) {
       Alert.alert('Aviso', 'Os dados foram carregados do cache.');
     }
     applyFilters();
-  }, [results, showUnavailable, selectedCarriers, minDeviation, maxDeviation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results, showUnavailable, selectedCarriers, globalMinDeviation, globalMaxDeviation]);
 
   const applyFilters = () => {
     let filtered = results;
@@ -46,16 +54,18 @@ const ShippingResults = ({ route }: { route: any }) => {
       filtered = filtered.filter((item) => selectedCarriers.includes(item.company.name));
     }
 
-    // Filtrar por variação: somente considerar os desvios que estejam dentro do intervalo definido
+    // Filtrar por variação usando os valores globais
     filtered = filtered.filter((item) => {
       const deviations = [item.deviation.length, item.deviation.width, item.deviation.height];
-      return deviations.every((dev) => dev >= minDeviation && dev <= maxDeviation);
+      return deviations.every((dev) => dev >= globalMinDeviation && dev <= globalMaxDeviation);
     });
 
     // Separar o resultado sem desvios (0,0,0)
     const noDeviationResults = filtered.filter(
       (item) =>
-        item.deviation.length === 0 && item.deviation.width === 0 && item.deviation.height === 0
+        item.deviation.length === 0 &&
+        item.deviation.width === 0 &&
+        item.deviation.height === 0
     );
 
     // Ordenar os resultados sem desvio pelo menor preço
@@ -90,23 +100,18 @@ const ShippingResults = ({ route }: { route: any }) => {
     setFilteredResults([...bestNoDeviationResult, ...filtered]);
   };
 
-  // Função de degradê: quando variação for zero, retorna cinza; se negativa, interpola de cinza a vermelho; se positiva, de cinza a verde.
+  // Função de degradê: se a variação for zero, retorna cinza; se negativa, interpola de cinza para vermelho; se positiva, de cinza para verde.
   const getDeviationColor = (variation: number): string => {
-    // Caso central: variação zero retorna cinza
     if (variation === 0) return '#808080';
 
     if (variation < 0) {
-      // Mapeia variações negativas: de 0 até o mínimo (valor negativo)
-      const ratio = variation / deviationRange.min; // ratio varia de 0 (para 0) a 1 (para min)
-      // Interpolar de cinza (128,128,128) para vermelho (255,0,0)
+      const ratio = variation / deviationRange.min; // ratio de 0 (para 0) a 1 (para min)
       const r = Math.round(128 + (255 - 128) * ratio);
       const g = Math.round(128 - 128 * ratio);
       const b = Math.round(128 - 128 * ratio);
       return `rgb(${r}, ${g}, ${b})`;
     } else {
-      // Para valores positivos: de 0 até o máximo
-      const ratio = variation / deviationRange.max; // ratio varia de 0 (para 0) a 1 (para max)
-      // Interpolar de cinza (128,128,128) para verde (0,255,0)
+      const ratio = variation / deviationRange.max; // ratio de 0 (para 0) a 1 (para max)
       const r = Math.round(128 - 128 * ratio);
       const g = Math.round(128 + (255 - 128) * ratio);
       const b = Math.round(128 - 128 * ratio);
@@ -185,7 +190,16 @@ const ShippingResults = ({ route }: { route: any }) => {
   };
 
   const openFilterModal = () => {
+    // Ao abrir, inicializa os valores locais com os valores globais
+    setModalSliderValues([globalMinDeviation, globalMaxDeviation]);
     setIsFilterModalVisible(true);
+  };
+
+  const applyModalFilters = () => {
+    // Atualiza os valores globais e aplica os filtros
+    setGlobalMinDeviation(modalSliderValues[0]);
+    setGlobalMaxDeviation(modalSliderValues[1]);
+    setIsFilterModalVisible(false);
   };
 
   const closeFilterModal = () => {
@@ -217,26 +231,13 @@ const ShippingResults = ({ route }: { route: any }) => {
               onValueChange={(value) => setShowUnavailable(value)}
             />
 
-            <Text style={styles.filterLabel}>Variação Máxima</Text>
-            <TextInput
-              style={styles.filterInput}
-              keyboardType="numeric"
-              value={maxDeviation.toString()}
-              onChangeText={(text) => {
-                const val = parseInt(text) || deviationRange.max;
-                setMaxDeviation(val > deviationRange.max ? deviationRange.max : val);
-              }}
-            />
-
-            <Text style={styles.filterLabel}>Variação Mínima</Text>
-            <TextInput
-              style={styles.filterInput}
-              keyboardType="numeric"
-              value={minDeviation.toString()}
-              onChangeText={(text) => {
-                const val = parseInt(text) || deviationRange.min;
-                setMinDeviation(val < deviationRange.min ? deviationRange.min : val);
-              }}
+            {/* RangeSlider para o intervalo de variação */}
+            <Text style={styles.filterLabel}>Intervalo de Variação</Text>
+            <RangeSlider
+              values={modalSliderValues}
+              min={deviationRange.min}
+              max={deviationRange.max}
+              onValuesChange={(values: number[]) => setModalSliderValues([values[0], values[1]])}
             />
 
             {/* Filtros de Transportadoras */}
@@ -261,7 +262,8 @@ const ShippingResults = ({ route }: { route: any }) => {
               )
             )}
           </ScrollView>
-          <Button title="Aplicar Filtros" onPress={closeFilterModal} />
+          <Button title="Aplicar Filtros" onPress={applyModalFilters} />
+          <Button title="Cancelar" onPress={closeFilterModal} color="#888" />
         </View>
       </Modal>
     </View>
@@ -361,12 +363,6 @@ const styles = StyleSheet.create({
   filterLabel: {
     fontSize: 16,
     marginVertical: 10,
-  },
-  filterInput: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 10,
-    borderRadius: 5,
   },
   carrierFilterItem: {
     flexDirection: 'row',

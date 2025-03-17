@@ -21,7 +21,6 @@ const ShippingResults = ({ route }: { route: any }) => {
   const { results, fromCache, deviationRange } : { results: ShippingRate[]; fromCache: boolean; deviationRange: { min: number; max: number } } = route.params;
   const [filteredResults, setFilteredResults] = useState<ShippingRate[]>([]);
   const [showUnavailable, setShowUnavailable] = useState(false);
-  // Os filtros de variação terão como valor inicial o intervalo definido na tela de consulta
   const [minDeviation, setMinDeviation] = useState<number>(deviationRange.min);
   const [maxDeviation, setMaxDeviation] = useState<number>(deviationRange.max);
   const [selectedCarriers, setSelectedCarriers] = useState<string[]>([]);
@@ -91,10 +90,28 @@ const ShippingResults = ({ route }: { route: any }) => {
     setFilteredResults([...bestNoDeviationResult, ...filtered]);
   };
 
-  const getDeviationColor = (value: number) => {
-    // Degrade de vermelho para verde para as variações
-    const colors = ['#ff0000', '#ff6666', '#ffcccc', '#cccccc', '#ccffcc', '#66ff66', '#00ff00'];
-    return colors[value - deviationRange.min] || '#cccccc';
+  // Função de degradê: quando variação for zero, retorna cinza; se negativa, interpola de cinza a vermelho; se positiva, de cinza a verde.
+  const getDeviationColor = (variation: number): string => {
+    // Caso central: variação zero retorna cinza
+    if (variation === 0) return '#808080';
+
+    if (variation < 0) {
+      // Mapeia variações negativas: de 0 até o mínimo (valor negativo)
+      const ratio = variation / deviationRange.min; // ratio varia de 0 (para 0) a 1 (para min)
+      // Interpolar de cinza (128,128,128) para vermelho (255,0,0)
+      const r = Math.round(128 + (255 - 128) * ratio);
+      const g = Math.round(128 - 128 * ratio);
+      const b = Math.round(128 - 128 * ratio);
+      return `rgb(${r}, ${g}, ${b})`;
+    } else {
+      // Para valores positivos: de 0 até o máximo
+      const ratio = variation / deviationRange.max; // ratio varia de 0 (para 0) a 1 (para max)
+      // Interpolar de cinza (128,128,128) para verde (0,255,0)
+      const r = Math.round(128 - 128 * ratio);
+      const g = Math.round(128 + (255 - 128) * ratio);
+      const b = Math.round(128 - 128 * ratio);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
   };
 
   const renderItem = ({ item, index }: { item: ShippingRate; index: number }) => {
@@ -207,7 +224,6 @@ const ShippingResults = ({ route }: { route: any }) => {
               value={maxDeviation.toString()}
               onChangeText={(text) => {
                 const val = parseInt(text) || deviationRange.max;
-                // Garantir que o valor não exceda o máximo definido na consulta
                 setMaxDeviation(val > deviationRange.max ? deviationRange.max : val);
               }}
             />
@@ -219,7 +235,6 @@ const ShippingResults = ({ route }: { route: any }) => {
               value={minDeviation.toString()}
               onChangeText={(text) => {
                 const val = parseInt(text) || deviationRange.min;
-                // Garantir que o valor não seja menor que o mínimo definido na consulta
                 setMinDeviation(val < deviationRange.min ? deviationRange.min : val);
               }}
             />

@@ -1,216 +1,297 @@
-// ShippingCalculator.tsx
-
+// src/screens/ShippingCalculator.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
-import * as Progress from 'react-native-progress';
+import { 
+  View, 
+  Text, 
+  TextInput, 
+  StyleSheet, 
+  Alert, 
+  ActivityIndicator, 
+  TouchableOpacity, 
+  ScrollView 
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import RangeSlider from '../components/RangeSlider';
-
-import { fetchShippingRates, getCurrentRequestCount } from '../utils/utils';
+import { fetchShippingRates } from '../utils/utils';
+import { useNavigation } from '@react-navigation/native';
 import firebase from '../services/firebaseConfig';
+import { DeviationRange, ShippingRate } from '../types/types';
 
-const ShippingCalculator = ({ navigation }: { navigation: any }) => {
-  // Valores padrão dos campos
-  const [originCep, setOriginCep] = useState('97050-600');
-  const [destinationCep, setDestinationCep] = useState('01307-002');
-  const [length, setLength] = useState('41');
-  const [width, setWidth] = useState('28');
-  const [height, setHeight] = useState('20');
-  const [weight, setWeight] = useState('2');
-  const [insuranceValue, setInsuranceValue] = useState('150');
-  const [loading, setLoading] = useState(false);
+// Definir tipos para navegação
+type NavigationProps = {
+  navigate: (screen: string, params: any) => void;
+};
+
+const ShippingCalculator = () => {
+  const [originCep, setOriginCep] = useState('');
+  const [destinationCep, setDestinationCep] = useState('');
+  const [length, setLength] = useState('');
+  const [width, setWidth] = useState('');
+  const [height, setHeight] = useState('');
+  const [weight, setWeight] = useState('');
+  const [insuranceValue, setInsuranceValue] = useState('');
+  const [costTolerance, setCostTolerance] = useState('1');
+  const [deviationRange, setDeviationRange] = useState<DeviationRange>({
+    length: { min: 0, max: 5 },
+    width: { min: 0, max: 5 },
+    height: { min: 0, max: 5 },
+  });
+
+  const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [progressText, setProgressText] = useState('');
-  const [apiRequestCount, setApiRequestCount] = useState(0);
-
-  // Estado do slider para variação, utilizando o componente RangeSlider
-  const [sliderValues, setSliderValues] = useState<[number, number]>([-5, 5]);
+  const [completedRequests, setCompletedRequests] = useState(0);
+  const [totalRequests, setTotalRequests] = useState(0);
+  
+  // Corrigir a tipagem da navegação
+  const navigation = useNavigation<NavigationProps>();
 
   useEffect(() => {
-    // Atualizar o contador de requisições a cada segundo
-    const interval = setInterval(() => {
-      const currentCount = getCurrentRequestCount();
-      setApiRequestCount(currentCount);
-    }, 1000);
-    return () => clearInterval(interval);
+    const loadLastInputs = async () => {
+      try {
+        const savedInputs = await AsyncStorage.getItem('lastInputs');
+        if (savedInputs) {
+          const { 
+            originCep: savedOrigin, 
+            destinationCep: savedDest, 
+            length: savedLen, 
+            width: savedWidth, 
+            height: savedHeight, 
+            weight: savedWeight, 
+            insuranceValue: savedIns,
+            costTolerance: savedTol,
+            deviationRange: savedRange
+          } = JSON.parse(savedInputs);
+          
+          setOriginCep(savedOrigin || '');
+          setDestinationCep(savedDest || '');
+          setLength(savedLen || '');
+          setWidth(savedWidth || '');
+          setHeight(savedHeight || '');
+          setWeight(savedWeight || '');
+          setInsuranceValue(savedIns || '');
+          setCostTolerance(savedTol || '1');
+          setDeviationRange(savedRange || {
+            length: { min: 0, max: 5 },
+            width: { min: 0, max: 5 },
+            height: { min: 0, max: 5 },
+          });
+        }
+      } catch (error) {
+        console.error('Erro ao carregar últimos inputs:', error);
+      }
+    };
+    loadLastInputs();
   }, []);
 
   const handleCalculate = async () => {
     if (!originCep || !destinationCep || !length || !width || !height || !weight || !insuranceValue) {
-      Alert.alert('Erro', 'Por favor, preencha todos os campos');
+      Alert.alert('Erro', 'Por favor, preencha todos os campos.');
       return;
     }
 
-    setLoading(true);
+    if (originCep.length !== 8 || destinationCep.length !== 8) {
+      Alert.alert('Erro', 'Os CEPs devem ter 8 dígitos.');
+      return;
+    }
+
+    const inputsToSave = {
+      originCep,
+      destinationCep,
+      length,
+      width,
+      height,
+      weight,
+      insuranceValue,
+      costTolerance,
+      deviationRange
+    };
+    await AsyncStorage.setItem('lastInputs', JSON.stringify(inputsToSave));
+
+    setIsLoading(true);
     setProgress(0);
-    setProgressText('');
+    setCompletedRequests(0);
+    setTotalRequests(0);
 
     try {
-      const requestKey = `${originCep}-${destinationCep}-${length}-${width}-${height}-${weight}-${insuranceValue}-${sliderValues[0]}-${sliderValues[1]}`;
-      const cachedResultRef = firebase.database().ref(`/cachedResults/${requestKey}`);
-      const snapshot = await cachedResultRef.once('value');
-      const data = snapshot.val();
-      const oneDay = 24 * 60 * 60 * 1000;
-      const now = Date.now();
+      const results = await fetchShippingRates(
+        originCep,
+        destinationCep,
+        length,
+        width,
+        height,
+        weight,
+        insuranceValue,
+        deviationRange,
+        parseFloat(costTolerance),
+        (progress, completed, total) => {
+          setProgress(progress);
+          setCompletedRequests(completed);
+          setTotalRequests(total);
+        }
+      );
 
-      if (data && now - data.timestamp < oneDay) {
-        // Dados do cache
-        navigation.navigate('Results', { 
-          results: data.results, 
-          fromCache: true,
-          deviationRange: { min: sliderValues[0], max: sliderValues[1] }
-        });
-      } else {
-        // Nova consulta à API com o intervalo definido pelo usuário
-        const rates = await fetchShippingRates(
-          originCep,
-          destinationCep,
-          length,
-          width,
-          height,
-          weight,
-          insuranceValue,
-          sliderValues[0],
-          sliderValues[1],
-          (progressValue, completedRequests, totalRequests) => {
-            setProgress(progressValue);
-            setProgressText(`Processados: ${completedRequests}/${totalRequests}`);
-          }
-        );
-        // Salvar resultados no cache
-        await cachedResultRef.set({ results: rates, timestamp: now });
-        navigation.navigate('Results', { 
-          results: rates, 
-          fromCache: false,
-          deviationRange: { min: sliderValues[0], max: sliderValues[1] }
-        });
-      }
-
-      // Salvar a consulta no histórico
-      const queryData = {
+      const timestamp = new Date().toISOString();
+      const queryRef = firebase.database().ref('queries').push();
+      await queryRef.set({
         originCep,
         destinationCep,
         dimensions: { length, width, height },
         weight,
         insuranceValue,
-        deviationRange: { min: sliderValues[0], max: sliderValues[1] },
-        timestamp: now,
-      };
+        timestamp,
+        deviationRange,
+        costTolerance: parseFloat(costTolerance),
+      });
 
-      const newReference = firebase.database().ref('/queries').push();
-      await newReference.set(queryData);
+      // Navegação corrigida com tipagem explícita
+      navigation.navigate('Results', {
+        results,
+        deviationRange,
+        costTolerance: parseFloat(costTolerance),
+      });
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível calcular os fretes');
-      console.error('Erro:', error);
+      console.error('Erro ao calcular fretes:', error);
+      Alert.alert('Erro', 'Ocorreu um erro ao calcular os fretes. Por favor, tente novamente.');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  return (
-    <View style={styles.container}>
-      {/* Contador de requisições da API */}
-      <View style={styles.apiCounterContainer}>
-        <Text style={styles.apiCounterText}>API: {apiRequestCount}/250</Text>
-      </View>
+  const updateDeviationRange = (dimension: keyof DeviationRange, value: 'min' | 'max', newValue: number) => {
+    setDeviationRange(prev => ({
+      ...prev,
+      [dimension]: {
+        ...prev[dimension],
+        [value]: newValue
+      }
+    }));
+  };
 
-      {/* Campos de entrada */}
-      <Text style={styles.label}>CEP Origem:</Text>
+  return (
+    <ScrollView style={styles.container}>
+      <Text style={styles.title}>Calculadora de Frete</Text>
+
+      <Text style={styles.label}>CEP de Origem</Text>
       <TextInput
         style={styles.input}
         value={originCep}
         onChangeText={setOriginCep}
+        placeholder="Ex: 00000000"
         keyboardType="numeric"
-        placeholder="Digite o CEP de origem"
+        maxLength={8}
       />
 
-      <Text style={styles.label}>CEP Destino:</Text>
+      <Text style={styles.label}>CEP de Destino</Text>
       <TextInput
         style={styles.input}
         value={destinationCep}
         onChangeText={setDestinationCep}
+        placeholder="Ex: 00000000"
         keyboardType="numeric"
-        placeholder="Digite o CEP de destino"
+        maxLength={8}
       />
 
-      <View style={styles.row}>
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Comprimento (cm):</Text>
-          <TextInput
-            style={styles.input}
-            value={length}
-            onChangeText={setLength}
-            keyboardType="numeric"
-            placeholder="Comprimento"
-          />
-        </View>
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Largura (cm):</Text>
-          <TextInput
-            style={styles.input}
-            value={width}
-            onChangeText={setWidth}
-            keyboardType="numeric"
-            placeholder="Largura"
-          />
-        </View>
-      </View>
+      <Text style={styles.label}>Comprimento (cm)</Text>
+      <TextInput
+        style={styles.input}
+        value={length}
+        onChangeText={setLength}
+        placeholder="Ex: 20"
+        keyboardType="numeric"
+      />
 
-      <View style={styles.row}>
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Altura (cm):</Text>
-          <TextInput
-            style={styles.input}
-            value={height}
-            onChangeText={setHeight}
-            keyboardType="numeric"
-            placeholder="Altura"
-          />
-        </View>
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Peso (kg):</Text>
-          <TextInput
-            style={styles.input}
-            value={weight}
-            onChangeText={setWeight}
-            keyboardType="numeric"
-            placeholder="Peso"
-          />
-        </View>
-      </View>
+      <Text style={styles.label}>Largura (cm)</Text>
+      <TextInput
+        style={styles.input}
+        value={width}
+        onChangeText={setWidth}
+        placeholder="Ex: 15"
+        keyboardType="numeric"
+      />
 
-      <Text style={styles.label}>Valor Segurado (R$):</Text>
+      <Text style={styles.label}>Altura (cm)</Text>
+      <TextInput
+        style={styles.input}
+        value={height}
+        onChangeText={setHeight}
+        placeholder="Ex: 10"
+        keyboardType="numeric"
+      />
+
+      <Text style={styles.label}>Peso (kg)</Text>
+      <TextInput
+        style={styles.input}
+        value={weight}
+        onChangeText={setWeight}
+        placeholder="Ex: 0.5"
+        keyboardType="numeric"
+      />
+
+      <Text style={styles.label}>Valor Segurado (R$)</Text>
       <TextInput
         style={styles.input}
         value={insuranceValue}
         onChangeText={setInsuranceValue}
+        placeholder="Ex: 50"
         keyboardType="numeric"
-        placeholder="Valor Segurado"
       />
 
-      {/* RangeSlider para intervalo de variação */}
-      <Text style={styles.label}>Intervalo de Variação (cm):</Text>
+      <Text style={styles.label}>Tolerância de Custo (R$)</Text>
+      <TextInput
+        style={styles.input}
+        value={costTolerance}
+        onChangeText={setCostTolerance}
+        placeholder="Ex: 1.00"
+        keyboardType="numeric"
+      />
+
+      <Text style={styles.sectionTitle}>Variação de Comprimento</Text>
       <RangeSlider
-        values={sliderValues}
-        min={-5}
+        values={[deviationRange.length.min, deviationRange.length.max]}
+        min={0}
         max={5}
-        onValuesChange={(values: number[]) => setSliderValues([values[0], values[1]])}
+        onValuesChange={(values) => {
+          updateDeviationRange('length', 'min', values[0]);
+          updateDeviationRange('length', 'max', values[1]);
+        }}
       />
 
-      {loading && (
-        <View style={styles.progressContainer}>
-          <Progress.Bar progress={progress} width={null} />
-          <Text style={styles.progressText}>{progressText}</Text>
-        </View>
-      )}
+      <Text style={styles.sectionTitle}>Variação de Largura</Text>
+      <RangeSlider
+        values={[deviationRange.width.min, deviationRange.width.max]}
+        min={0}
+        max={5}
+        onValuesChange={(values) => {
+          updateDeviationRange('width', 'min', values[0]);
+          updateDeviationRange('width', 'max', values[1]);
+        }}
+      />
 
-      <View style={styles.buttonContainer}>
-        <Button
-          title={loading ? 'Calculando...' : 'Calcular Frete'}
-          onPress={handleCalculate}
-          disabled={loading}
-        />
-      </View>
-    </View>
+      <Text style={styles.sectionTitle}>Variação de Altura</Text>
+      <RangeSlider
+        values={[deviationRange.height.min, deviationRange.height.max]}
+        min={0}
+        max={5}
+        onValuesChange={(values) => {
+          updateDeviationRange('height', 'min', values[0]);
+          updateDeviationRange('height', 'max', values[1]);
+        }}
+      />
+
+      {isLoading ? (
+        <View style={styles.progressContainer}>
+          <ActivityIndicator size="large" color="#0000ff" />
+          <Text>Progresso: {Math.round(progress * 100)}%</Text>
+          <Text>
+            {completedRequests} de {totalRequests} requisições
+          </Text>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.button} onPress={handleCalculate}>
+          <Text style={styles.buttonText}>Calcular Frete</Text>
+        </TouchableOpacity>
+      )}
+    </ScrollView>
   );
 };
 
@@ -218,48 +299,51 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    justifyContent: 'flex-start',
+    backgroundColor: '#f7f7f7',
   },
-  apiCounterContainer: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-  },
-  apiCounterText: {
-    fontSize: 12,
-    color: '#555',
-  },
-  label: {
-    marginTop: 10,
+  title: {
+    fontSize: 22,
     fontWeight: 'bold',
-    fontSize: 14,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    padding: 10,
-    marginTop: 5,
-    fontSize: 14,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  inputContainer: {
-    width: '48%',
-  },
-  progressContainer: {
-    marginTop: 20,
-  },
-  progressText: {
+    marginBottom: 20,
     textAlign: 'center',
-    marginTop: 5,
     color: '#333',
   },
-  buttonContainer: {
-    marginTop: 10,
+  label: {
+    fontSize: 16,
+    marginBottom: 5,
+    color: '#333',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 15,
+    marginBottom: 10,
+    color: '#333',
+  },
+  input: {
+    height: 40,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 10,
+    marginBottom: 15,
+    backgroundColor: '#fff',
+  },
+  button: {
+    backgroundColor: '#007bff',
+    padding: 15,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  progressContainer: {
+    alignItems: 'center',
+    marginTop: 20,
   },
 });
 

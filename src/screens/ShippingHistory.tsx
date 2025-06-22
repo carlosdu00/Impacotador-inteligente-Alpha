@@ -1,6 +1,9 @@
+// src/screens/ShippingHistory.tsx
+
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 import firebase from '../services/firebaseConfig';
+import { DeviationRange } from '../types/types';
 
 const ShippingHistory = () => {
   const [queries, setQueries] = useState<any[]>([]);
@@ -10,7 +13,7 @@ const ShippingHistory = () => {
     const onValueChange = firebase
       .database()
       .ref('/queries')
-      .limitToLast(50) // Limitar aos últimos 50 registros
+      .limitToLast(50)
       .on('value', (snapshot) => {
         const data = snapshot.val();
         if (data) {
@@ -18,7 +21,6 @@ const ShippingHistory = () => {
             id: key,
             ...data[key],
           }));
-          // Inverter a ordem para mostrar os mais recentes primeiro
           setQueries(queriesArray.reverse());
         } else {
           setQueries([]);
@@ -28,6 +30,10 @@ const ShippingHistory = () => {
 
     return () => firebase.database().ref('/queries').off('value', onValueChange);
   }, []);
+
+  const formatDeviationRange = (range: DeviationRange) => {
+    return `C: +${range.length.min}-${range.length.max}cm | L: +${range.width.min}-${range.width.max}cm | A: +${range.height.min}-${range.height.max}cm`;
+  };
 
   const renderItem = ({ item }: { item: any }) => (
     <View style={styles.itemContainer}>
@@ -39,6 +45,8 @@ const ShippingHistory = () => {
       </Text>
       <Text style={styles.itemText}>Peso: {item.weight} kg</Text>
       <Text style={styles.itemText}>Valor Segurado: R$ {item.insuranceValue}</Text>
+      <Text style={styles.itemText}>Variação: {formatDeviationRange(item.deviationRange)}</Text>
+      <Text style={styles.itemText}>Tolerância: R$ {item.costTolerance?.toFixed(2)}</Text>
     </View>
   );
 

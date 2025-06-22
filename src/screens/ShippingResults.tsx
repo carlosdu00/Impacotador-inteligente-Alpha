@@ -1,5 +1,4 @@
-// ShippingResults.tsx
-
+// src/screens/ShippingResults.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -7,34 +6,31 @@ import {
   FlatList,
   StyleSheet,
   Image,
-  Alert,
   TouchableOpacity,
   Modal,
   ScrollView,
   Switch,
   Button,
+  TextInput,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RangeSlider from '../components/RangeSlider';
-import { ShippingRate } from '../types/types';
+import { ShippingRate, DeviationRange } from '../types/types';
 
-const ShippingResults = ({ route }: { route: any }) => {
-  const { results, fromCache, deviationRange } : { results: ShippingRate[]; fromCache: boolean; deviationRange: { min: number; max: number } } = route.params;
-  
-  // Estados globais para os filtros de variação (aplicados após clicar no botão "Aplicar Filtros")
-  const [globalMinDeviation, setGlobalMinDeviation] = useState<number>(deviationRange.min);
-  const [globalMaxDeviation, setGlobalMaxDeviation] = useState<number>(deviationRange.max);
-  
+const ShippingResults = ({ route }: any) => {
+  const { results, deviationRange: initialDeviationRange, costTolerance: initialCostTolerance } = route.params;
+
   const [filteredResults, setFilteredResults] = useState<ShippingRate[]>([]);
   const [showUnavailable, setShowUnavailable] = useState(false);
-  // Estado para transportadoras selecionadas; essas preferências serão carregadas e salvas via AsyncStorage
   const [selectedCarriers, setSelectedCarriers] = useState<string[]>([]);
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
   
-  // Estados locais para o slider na modal (RangeSlider)
-  const [modalSliderValues, setModalSliderValues] = useState<[number, number]>([deviationRange.min, deviationRange.max]);
+  const [globalDeviationRange, setGlobalDeviationRange] = useState<DeviationRange>(initialDeviationRange);
+  const [costTolerance, setCostTolerance] = useState<number>(initialCostTolerance);
+  
+  const [modalDeviationRange, setModalDeviationRange] = useState<DeviationRange>(initialDeviationRange);
+  const [modalCostTolerance, setModalCostTolerance] = useState<string>(initialCostTolerance.toString());
 
-  // Carregar preferências de transportadoras salvas
   useEffect(() => {
     const loadCarrierPreferences = async () => {
       try {
@@ -42,8 +38,14 @@ const ShippingResults = ({ route }: { route: any }) => {
         if (storedCarriers !== null) {
           setSelectedCarriers(JSON.parse(storedCarriers));
         } else if (results && results.length > 0) {
-          // Se não houver preferências salvas, ativa todas as transportadoras dos resultados
-          const carriers = Array.from(new Set(results.map((item) => item.company.name)));
+          // Corrigir: adicionar tipagem explícita
+          const carriers = Array.from(
+            new Set(
+              results
+                .map((item: ShippingRate) => item.company.name)
+                .filter((name: any) => typeof name === 'string') // Correção aqui
+            )
+          ) as string[];
           setSelectedCarriers(carriers);
         }
       } catch (error) {
@@ -53,50 +55,47 @@ const ShippingResults = ({ route }: { route: any }) => {
     loadCarrierPreferences();
   }, [results]);
 
-  // Exibe o alerta de cache apenas uma vez na montagem do componente e aplica os filtros
   useEffect(() => {
-    if (fromCache) {
-      Alert.alert('Aviso', 'Os dados foram carregados do cache.');
-    }
     applyFilters();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, showUnavailable, selectedCarriers, globalMinDeviation, globalMaxDeviation]);
+  }, [results, showUnavailable, selectedCarriers, globalDeviationRange, costTolerance]);
 
   const applyFilters = () => {
     let filtered = results;
 
-    // Filtrar por disponibilidade
     if (!showUnavailable) {
-      filtered = filtered.filter((item) => item.price && !item.error);
+      filtered = filtered.filter((item: ShippingRate) => item.price && !item.error);
     }
 
-    // Filtrar por transportadoras
     if (selectedCarriers.length > 0) {
-      filtered = filtered.filter((item) => selectedCarriers.includes(item.company.name));
+      filtered = filtered.filter((item: ShippingRate) => 
+        selectedCarriers.includes(item.company.name)
+      );
     }
 
-    // Filtrar por variação usando os valores globais
-    filtered = filtered.filter((item) => {
-      const deviations = [item.deviation.length, item.deviation.width, item.deviation.height];
-      return deviations.every((dev) => dev >= globalMinDeviation && dev <= globalMaxDeviation);
+    filtered = filtered.filter((item: ShippingRate) => {
+      return (
+        item.deviation.length >= globalDeviationRange.length.min &&
+        item.deviation.length <= globalDeviationRange.length.max &&
+        item.deviation.width >= globalDeviationRange.width.min &&
+        item.deviation.width <= globalDeviationRange.width.max &&
+        item.deviation.height >= globalDeviationRange.height.min &&
+        item.deviation.height <= globalDeviationRange.height.max
+      );
     });
 
-    // Separar o resultado sem desvios (0,0,0)
     const noDeviationResults = filtered.filter(
-      (item) =>
+      (item: ShippingRate) =>
         item.deviation.length === 0 &&
         item.deviation.width === 0 &&
         item.deviation.height === 0
     );
 
-    // Ordenar os resultados sem desvio pelo menor preço
-    noDeviationResults.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+    noDeviationResults.sort((a: ShippingRate, b: ShippingRate) => parseFloat(a.price) - parseFloat(b.price));
 
     const bestNoDeviationResult = noDeviationResults.length > 0 ? [noDeviationResults[0]] : [];
 
-    // Remover o melhor resultado sem desvio da lista geral
     filtered = filtered.filter(
-      (item) =>
+      (item: ShippingRate) =>
         !(
           item.deviation.length === 0 &&
           item.deviation.width === 0 &&
@@ -106,38 +105,28 @@ const ShippingResults = ({ route }: { route: any }) => {
         )
     );
 
-    // Ordenar os demais resultados
-    filtered.sort((a, b) => {
+    filtered.sort((a: ShippingRate, b: ShippingRate) => {
       const priceA = parseFloat(a.price);
       const priceB = parseFloat(b.price);
-      if (priceA !== priceB) {
-        return priceA - priceB;
-      } else {
+      
+      if (Math.abs(priceA - priceB) <= costTolerance) {
         return b.totalSize - a.totalSize;
+      } else {
+        return priceA - priceB;
       }
     });
 
-    // Combinar o melhor resultado sem desvio com os demais
     setFilteredResults([...bestNoDeviationResult, ...filtered]);
   };
 
-  // Função de degradê: se a variação for zero, retorna cinza; se negativa, interpola de cinza para vermelho; se positiva, de cinza para verde.
   const getDeviationColor = (variation: number): string => {
     if (variation === 0) return '#808080';
-
-    if (variation < 0) {
-      const ratio = variation / deviationRange.min; // ratio de 0 (para 0) a 1 (para min)
-      const r = Math.round(128 + (255 - 128) * ratio);
-      const g = Math.round(128 - 128 * ratio);
-      const b = Math.round(128 - 128 * ratio);
-      return `rgb(${r}, ${g}, ${b})`;
-    } else {
-      const ratio = variation / deviationRange.max; // ratio de 0 (para 0) a 1 (para max)
-      const r = Math.round(128 - 128 * ratio);
-      const g = Math.round(128 + (255 - 128) * ratio);
-      const b = Math.round(128 - 128 * ratio);
-      return `rgb(${r}, ${g}, ${b})`;
-    }
+    
+    const ratio = variation / 5;
+    const r = Math.round(128 - 128 * ratio);
+    const g = Math.round(128 + 127 * ratio);
+    const b = Math.round(128 - 128 * ratio);
+    return `rgb(${r}, ${g}, ${b})`;
   };
 
   const renderItem = ({ item, index }: { item: ShippingRate; index: number }) => {
@@ -187,7 +176,7 @@ const ShippingResults = ({ route }: { route: any }) => {
               ];
               const finalValue = originalValues[idx] + deviationValues[idx];
               return (
-                <View key={idx} style={styles.deviationBoxContainer}>
+                <View key={`${item.id}-${idx}`} style={styles.deviationBoxContainer}>
                   <Text style={styles.deviationLabel}>{label}</Text>
                   <Text
                     style={[
@@ -211,17 +200,15 @@ const ShippingResults = ({ route }: { route: any }) => {
   };
 
   const openFilterModal = () => {
-    // Ao abrir, inicializa os valores locais com os valores globais
-    setModalSliderValues([globalMinDeviation, globalMaxDeviation]);
+    setModalDeviationRange(globalDeviationRange);
+    setModalCostTolerance(costTolerance.toString());
     setIsFilterModalVisible(true);
   };
 
   const applyModalFilters = async () => {
-    // Atualiza os valores globais e aplica os filtros
-    setGlobalMinDeviation(modalSliderValues[0]);
-    setGlobalMaxDeviation(modalSliderValues[1]);
+    setGlobalDeviationRange(modalDeviationRange);
+    setCostTolerance(parseFloat(modalCostTolerance) || 1);
     setIsFilterModalVisible(false);
-    // Salva as preferências de transportadoras para futuras pesquisas
     try {
       await AsyncStorage.setItem('selectedCarriers', JSON.stringify(selectedCarriers));
     } catch (error) {
@@ -233,9 +220,32 @@ const ShippingResults = ({ route }: { route: any }) => {
     setIsFilterModalVisible(false);
   };
 
+  const updateModalDeviationRange = (dimension: keyof DeviationRange, value: 'min' | 'max', newValue: number) => {
+    setModalDeviationRange(prev => ({
+      ...prev,
+      [dimension]: {
+        ...prev[dimension],
+        [value]: newValue
+      }
+    }));
+  };
+
+  // Extrair transportadoras de forma tipada
+  const getCarriers = (): string[] => {
+    return Array.from(
+      new Set(
+        results
+          .map((item: ShippingRate) => item.company.name)
+          .filter((name: any) => typeof name === 'string') // Correção aqui
+      )
+    ) as string[];
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Resultados de Frete</Text>
+      <Text style={styles.toleranceText}>Tolerância: R$ {costTolerance.toFixed(2)}</Text>
+      
       <TouchableOpacity style={styles.filterButton} onPress={openFilterModal}>
         <Text style={styles.filterButtonText}>Filtrar</Text>
       </TouchableOpacity>
@@ -247,7 +257,6 @@ const ShippingResults = ({ route }: { route: any }) => {
         ListEmptyComponent={<Text>Nenhum resultado encontrado.</Text>}
       />
 
-      {/* Modal de Filtros */}
       <Modal visible={isFilterModalVisible} animationType="slide">
         <View style={styles.modalContainer}>
           <Text style={styles.modalTitle}>Filtros</Text>
@@ -258,19 +267,17 @@ const ShippingResults = ({ route }: { route: any }) => {
               onValueChange={(value) => setShowUnavailable(value)}
             />
 
-            {/* RangeSlider para o intervalo de variação */}
-            <Text style={styles.filterLabel}>Intervalo de Variação</Text>
-            <RangeSlider
-              values={modalSliderValues}
-              min={deviationRange.min}
-              max={deviationRange.max}
-              onValuesChange={(values: number[]) => setModalSliderValues([values[0], values[1]])}
+            <Text style={styles.filterLabel}>Tolerância de Custo (R$)</Text>
+            <TextInput
+              style={styles.input}
+              value={modalCostTolerance}
+              onChangeText={setModalCostTolerance}
+              keyboardType="numeric"
+              placeholder="Ex: 1.00"
             />
 
-            {/* Filtros de Transportadoras */}
             <Text style={styles.filterLabel}>Transportadoras</Text>
-            {Array.from(new Set(results.map((item) => item.company.name))).map(
-              (carrierName) => (
+            {getCarriers().map((carrierName: string) => (
                 <View key={carrierName} style={styles.carrierFilterItem}>
                   <Switch
                     value={selectedCarriers.includes(carrierName)}
@@ -286,8 +293,41 @@ const ShippingResults = ({ route }: { route: any }) => {
                   />
                   <Text style={styles.carrierFilterText}>{carrierName}</Text>
                 </View>
-              )
-            )}
+              ))
+            }
+
+            <Text style={styles.filterLabel}>Variação de Comprimento</Text>
+            <RangeSlider
+              values={[modalDeviationRange.length.min, modalDeviationRange.length.max]}
+              min={0}
+              max={5}
+              onValuesChange={(values) => {
+                updateModalDeviationRange('length', 'min', values[0]);
+                updateModalDeviationRange('length', 'max', values[1]);
+              }}
+            />
+
+            <Text style={styles.filterLabel}>Variação de Largura</Text>
+            <RangeSlider
+              values={[modalDeviationRange.width.min, modalDeviationRange.width.max]}
+              min={0}
+              max={5}
+              onValuesChange={(values) => {
+                updateModalDeviationRange('width', 'min', values[0]);
+                updateModalDeviationRange('width', 'max', values[1]);
+              }}
+            />
+
+            <Text style={styles.filterLabel}>Variação de Altura</Text>
+            <RangeSlider
+              values={[modalDeviationRange.height.min, modalDeviationRange.height.max]}
+              min={0}
+              max={5}
+              onValuesChange={(values) => {
+                updateModalDeviationRange('height', 'min', values[0]);
+                updateModalDeviationRange('height', 'max', values[1]);
+              }}
+            />
           </ScrollView>
           <Button title="Aplicar Filtros" onPress={applyModalFilters} />
           <Button title="Cancelar" onPress={closeFilterModal} color="#888" />
@@ -300,6 +340,12 @@ const ShippingResults = ({ route }: { route: any }) => {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
   title: { fontSize: 20, fontWeight: 'bold', marginBottom: 10 },
+  toleranceText: {
+    fontSize: 16,
+    marginBottom: 10,
+    color: '#555',
+    textAlign: 'center',
+  },
   resultContainer: {
     flexDirection: 'row',
     padding: 10,
@@ -390,6 +436,15 @@ const styles = StyleSheet.create({
   filterLabel: {
     fontSize: 16,
     marginVertical: 10,
+  },
+  input: {
+    height: 40,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 10,
+    marginBottom: 15,
+    backgroundColor: '#fff',
   },
   carrierFilterItem: {
     flexDirection: 'row',

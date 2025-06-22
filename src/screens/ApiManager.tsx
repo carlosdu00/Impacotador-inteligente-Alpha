@@ -1,3 +1,4 @@
+//ApiManager.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, Button, StyleSheet, Alert } from 'react-native';
 import firebase from '../services/firebaseConfig';

@@ -1,4 +1,3 @@
-// src/screens/ShippingCalculator.tsx
 import React, { useState, useEffect } from 'react';
 import { 
   View, 
@@ -17,7 +16,6 @@ import { useNavigation } from '@react-navigation/native';
 import firebase from '../services/firebaseConfig';
 import { DeviationRange, ShippingRate } from '../types/types';
 
-// Definir tipos para navegação
 type NavigationProps = {
   navigate: (screen: string, params: any) => void;
 };
@@ -42,7 +40,6 @@ const ShippingCalculator = () => {
   const [completedRequests, setCompletedRequests] = useState(0);
   const [totalRequests, setTotalRequests] = useState(0);
   
-  // Corrigir a tipagem da navegação
   const navigation = useNavigation<NavigationProps>();
 
   useEffect(() => {
@@ -143,7 +140,6 @@ const ShippingCalculator = () => {
         costTolerance: parseFloat(costTolerance),
       });
 
-      // Navegação corrigida com tipagem explícita
       navigation.navigate('Results', {
         results,
         deviationRange,

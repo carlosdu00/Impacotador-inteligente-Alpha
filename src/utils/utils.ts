@@ -1,11 +1,9 @@
-// utils.ts
 import axios from 'axios';
 import { ShippingRate, DeviationRange } from '../types/types';
 import { EXPO_melhorEnvioToken } from "@env";
 
 const melhorEnvioToken = EXPO_melhorEnvioToken;
 
-// Gerenciamento de requisições
 let requestTimestamps: number[] = [];
 const MAX_REQUESTS_PER_MINUTE = 250;
 const REQUEST_THRESHOLD = 250;
@@ -28,21 +26,10 @@ export const fetchShippingRates = async (
   costTolerance: number,
   onProgress?: (progress: number, completedRequests: number, totalRequests: number) => void
 ): Promise<ShippingRate[]> => {
-  // Gerar arrays de desvios para cada dimensão
-  const lengthDeviations: number[] = [];
-  for (let d = deviationRange.length.min; d <= deviationRange.length.max; d++) {
-    lengthDeviations.push(d);
-  }
-
-  const widthDeviations: number[] = [];
-  for (let d = deviationRange.width.min; d <= deviationRange.width.max; d++) {
-    widthDeviations.push(d);
-  }
-
-  const heightDeviations: number[] = [];
-  for (let d = deviationRange.height.min; d <= deviationRange.height.max; d++) {
-    heightDeviations.push(d);
-  }
+  // Garantir que a variação 0 está sempre incluída
+  const lengthDeviations = [0, ...Array.from({length: deviationRange.length.max}, (_, i) => i + 1)];
+  const widthDeviations = [0, ...Array.from({length: deviationRange.width.max}, (_, i) => i + 1)];
+  const heightDeviations = [0, ...Array.from({length: deviationRange.height.max}, (_, i) => i + 1)];
 
   const originalDimensions = {
     length: +length,
@@ -57,7 +44,6 @@ export const fetchShippingRates = async (
     deviation: { length: number; width: number; height: number };
   }[] = [];
 
-  // Gerar todas as combinações de desvios
   for (const dLength of lengthDeviations) {
     for (const dWidth of widthDeviations) {
       for (const dHeight of heightDeviations) {
@@ -86,20 +72,17 @@ export const fetchShippingRates = async (
     'User-Agent': 'Aplicação',
   };
 
-  // Processar as solicitações em lotes
   const MAX_CONCURRENT_REQUESTS = 10;
 
   for (let i = 0; i < dimensionVariations.length; i += MAX_CONCURRENT_REQUESTS) {
     const chunk = dimensionVariations.slice(i, i + MAX_CONCURRENT_REQUESTS);
 
-    // Gerenciar o contador de requisições
     const now = Date.now();
     requestTimestamps = requestTimestamps.filter((timestamp) => now - timestamp < 60000);
 
     if (requestTimestamps.length >= REQUEST_THRESHOLD) {
-      // Pausar até que seja seguro continuar
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      i -= MAX_CONCURRENT_REQUESTS; // Repetir o lote atual após a pausa
+      i -= MAX_CONCURRENT_REQUESTS;
       continue;
     }
 
@@ -142,7 +125,6 @@ export const fetchShippingRates = async (
       } catch (error) {
         console.error('Erro na solicitação:', error);
       } finally {
-        // Atualizar contador de requisições
         requestTimestamps.push(Date.now());
         completedRequests++;
         if (onProgress) {
@@ -155,25 +137,33 @@ export const fetchShippingRates = async (
     await Promise.all(promises);
   }
 
-  // Separar resultados disponíveis e indisponíveis
   const availableResults = allResults.filter((item) => item.price && !item.error);
   const unavailableResults = allResults.filter((item) => !item.price || item.error);
 
-  // Ordenar resultados com tolerância de custo
+  // Função para calcular a distribuição das variações (quanto menor, mais distribuído)
+  const calculateDistribution = (deviations: number[]) => {
+    const mean = deviations.reduce((sum, val) => sum + val, 0) / 3;
+    return deviations.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0);
+  };
+
   availableResults.sort((a, b) => {
     const priceA = parseFloat(a.price);
     const priceB = parseFloat(b.price);
     
-    // Verificar se os preços estão dentro da tolerância
     if (Math.abs(priceA - priceB) <= costTolerance) {
-      // Desempate pelo maior tamanho (soma das dimensões)
-      return b.totalSize - a.totalSize;
+      if (b.totalSize !== a.totalSize) {
+        return b.totalSize - a.totalSize;
+      } else {
+        // Desempate pela distribuição das variações
+        const distA = calculateDistribution([a.deviation.length, a.deviation.width, a.deviation.height]);
+        const distB = calculateDistribution([b.deviation.length, b.deviation.width, b.deviation.height]);
+        return distA - distB;
+      }
     } else {
       return priceA - priceB;
     }
   });
 
-  // Combinar resultados disponíveis e indisponíveis
   const sortedResults = [...availableResults, ...unavailableResults];
 
   return sortedResults;

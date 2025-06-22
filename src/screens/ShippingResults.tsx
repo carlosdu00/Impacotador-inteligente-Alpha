@@ -1,4 +1,3 @@
-// src/screens/ShippingResults.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -38,12 +37,11 @@ const ShippingResults = ({ route }: any) => {
         if (storedCarriers !== null) {
           setSelectedCarriers(JSON.parse(storedCarriers));
         } else if (results && results.length > 0) {
-          // Corrigir: adicionar tipagem explícita
           const carriers = Array.from(
             new Set(
               results
                 .map((item: ShippingRate) => item.company.name)
-                .filter((name: any) => typeof name === 'string') // Correção aqui
+                .filter((name: string) => typeof name === 'string')
             )
           ) as string[];
           setSelectedCarriers(carriers);
@@ -59,19 +57,28 @@ const ShippingResults = ({ route }: any) => {
     applyFilters();
   }, [results, showUnavailable, selectedCarriers, globalDeviationRange, costTolerance]);
 
+  // Função para calcular distribuição (desempate)
+  const calculateDistribution = (deviations: number[]) => {
+    const mean = deviations.reduce((sum, val) => sum + val, 0) / 3;
+    return deviations.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0);
+  };
+
   const applyFilters = () => {
     let filtered = results;
 
+    // Filtrar por disponibilidade
     if (!showUnavailable) {
       filtered = filtered.filter((item: ShippingRate) => item.price && !item.error);
     }
 
+    // Filtrar por transportadoras
     if (selectedCarriers.length > 0) {
       filtered = filtered.filter((item: ShippingRate) => 
         selectedCarriers.includes(item.company.name)
       );
     }
 
+    // Filtrar por variação
     filtered = filtered.filter((item: ShippingRate) => {
       return (
         item.deviation.length >= globalDeviationRange.length.min &&
@@ -83,6 +90,7 @@ const ShippingResults = ({ route }: any) => {
       );
     });
 
+    // Separar o resultado sem desvios (0,0,0)
     const noDeviationResults = filtered.filter(
       (item: ShippingRate) =>
         item.deviation.length === 0 &&
@@ -90,10 +98,12 @@ const ShippingResults = ({ route }: any) => {
         item.deviation.height === 0
     );
 
+    // Ordenar os resultados sem desvio pelo menor preço
     noDeviationResults.sort((a: ShippingRate, b: ShippingRate) => parseFloat(a.price) - parseFloat(b.price));
 
     const bestNoDeviationResult = noDeviationResults.length > 0 ? [noDeviationResults[0]] : [];
 
+    // Remover o melhor resultado sem desvio da lista geral
     filtered = filtered.filter(
       (item: ShippingRate) =>
         !(
@@ -105,22 +115,32 @@ const ShippingResults = ({ route }: any) => {
         )
     );
 
+    // Ordenar com tolerância de custo e critérios de desempate
     filtered.sort((a: ShippingRate, b: ShippingRate) => {
       const priceA = parseFloat(a.price);
       const priceB = parseFloat(b.price);
       
       if (Math.abs(priceA - priceB) <= costTolerance) {
-        return b.totalSize - a.totalSize;
+        if (b.totalSize !== a.totalSize) {
+          return b.totalSize - a.totalSize;
+        } else {
+          // Desempate pela distribuição das variações
+          const distA = calculateDistribution([a.deviation.length, a.deviation.width, a.deviation.height]);
+          const distB = calculateDistribution([b.deviation.length, b.deviation.width, b.deviation.height]);
+          return distA - distB;
+        }
       } else {
         return priceA - priceB;
       }
     });
 
+    // Combinar o melhor resultado sem desvio com os demais
     setFilteredResults([...bestNoDeviationResult, ...filtered]);
   };
 
+  // Apenas cores para variações positivas
   const getDeviationColor = (variation: number): string => {
-    if (variation === 0) return '#808080';
+    if (variation === 0) return '#808080'; // Cinza para zero
     
     const ratio = variation / 5;
     const r = Math.round(128 - 128 * ratio);
@@ -131,9 +151,13 @@ const ShippingResults = ({ route }: any) => {
 
   const renderItem = ({ item, index }: { item: ShippingRate; index: number }) => {
     const isUnavailable = !item.price || item.error;
+    const isNoDeviation = item.deviation.length === 0 && 
+                         item.deviation.width === 0 && 
+                         item.deviation.height === 0;
+    
     return (
       <View>
-        {index === 0 && (
+        {isNoDeviation && (
           <Text style={styles.bestResultLabel}>
             Melhor opção sem alterações nas medidas:
           </Text>
@@ -142,7 +166,7 @@ const ShippingResults = ({ route }: any) => {
           style={[
             styles.resultContainer,
             isUnavailable && styles.unavailableContainer,
-            index === 0 && styles.firstResultContainer,
+            isNoDeviation && styles.firstResultContainer,
           ]}
         >
           <View style={styles.leftContainer}>
@@ -194,7 +218,7 @@ const ShippingResults = ({ route }: any) => {
             })}
           </View>
         </View>
-        {index === 0 && <View style={styles.separator} />}
+        {isNoDeviation && <View style={styles.separator} />}
       </View>
     );
   };
@@ -236,7 +260,7 @@ const ShippingResults = ({ route }: any) => {
       new Set(
         results
           .map((item: ShippingRate) => item.company.name)
-          .filter((name: any) => typeof name === 'string') // Correção aqui
+          .filter((name: string) => typeof name === 'string')
       )
     ) as string[];
   };

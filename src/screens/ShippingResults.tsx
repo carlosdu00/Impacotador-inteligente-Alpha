@@ -178,6 +178,17 @@ const ShippingResults = ({ route }: any) => {
             <Text style={[styles.priceText, isUnavailable && styles.unavailableText]}>
               {item.price ? `R$ ${item.price}` : `Indisponível`}
             </Text>
+            {/* Adicionar informações de prazo e volume ganho */}
+            {!isUnavailable && (
+              <>
+                <Text style={styles.infoText}>
+                  Entrega em {item.deliveryTime} dias úteis
+                </Text>
+                <Text style={styles.infoText}>
+                  Volume: +{item.volumeGain?.toFixed(2)}%
+                </Text>
+              </>
+            )}
           </View>
           <View style={styles.deviationContainer}>
             {['C', 'L', 'A'].map((label, idx) => {
@@ -405,6 +416,11 @@ const styles = StyleSheet.create({
   },
   unavailableText: {
     color: 'gray',
+  },
+  // Novo estilo para as informações adicionais
+  infoText: {
+    fontSize: 12,
+    color: '#555',
   },
   deviationContainer: {
     flexDirection: 'row',

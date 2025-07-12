@@ -114,8 +114,18 @@ export const fetchShippingRates = async (
         allResults.push(
           ...response.data.map((item: any) => {
             const totalSize = dim.length + dim.width + dim.height;
+            
+            // Calcular volume original e novo volume
+            const originalVolume = originalDimensions.length * originalDimensions.width * originalDimensions.height;
+            const newVolume = (originalDimensions.length + dim.deviation.length) * 
+                             (originalDimensions.width + dim.deviation.width) * 
+                             (originalDimensions.height + dim.deviation.height);
+            const volumeGain = ((newVolume - originalVolume) / originalVolume) * 100;
+
             return {
               ...item,
+              deliveryTime: item.delivery_time, // Extrair prazo de entrega
+              volumeGain, // Adicionar ganho de volume em porcentagem
               deviation: dim.deviation,
               totalSize,
               originalDimensions,

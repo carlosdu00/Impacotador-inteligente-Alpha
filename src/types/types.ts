@@ -9,6 +9,8 @@ export interface ShippingRate {
   deviation: { length: number; width: number; height: number };
   totalSize: number;
   originalDimensions: { length: number; width: number; height: number };
+  deliveryTime?: number; // Adicionado
+  volumeGain?: number; // Adicionado
 }
 
 export interface DeviationRange {

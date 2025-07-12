@@ -43,7 +43,7 @@ const RangeSlider: React.FC<RangeSliderProps> = ({ values, min, max, onValuesCha
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 1,
   },
   labelsContainer: {
     flexDirection: 'row',

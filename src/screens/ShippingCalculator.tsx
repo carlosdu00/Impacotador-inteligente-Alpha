@@ -7,7 +7,8 @@ import {
   Alert, 
   ActivityIndicator, 
   TouchableOpacity, 
-  ScrollView 
+  ScrollView,
+  Dimensions
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RangeSlider from '../components/RangeSlider';
@@ -15,6 +16,8 @@ import { fetchShippingRates } from '../utils/utils';
 import { useNavigation } from '@react-navigation/native';
 import firebase from '../services/firebaseConfig';
 import { DeviationRange, ShippingRate } from '../types/types';
+
+const screenWidth = Dimensions.get('window').width;
 
 type NavigationProps = {
   navigate: (screen: string, params: any) => void;
@@ -164,115 +167,166 @@ const ShippingCalculator = () => {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Calculadora de Frete</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+      {/* CEPs lado a lado */}
+      <View style={styles.row}>
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>CEP de Origem</Text>
+          <View style={styles.inputWithUnit}>
+            <TextInput
+              style={styles.input}
+              value={originCep}
+              onChangeText={setOriginCep}
+              placeholder="00000000"
+              keyboardType="numeric"
+              maxLength={8}
+            />
+          </View>
+        </View>
+        
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>CEP de Destino</Text>
+          <View style={styles.inputWithUnit}>
+            <TextInput
+              style={styles.input}
+              value={destinationCep}
+              onChangeText={setDestinationCep}
+              placeholder="00000000"
+              keyboardType="numeric"
+              maxLength={8}
+            />
+          </View>
+        </View>
+      </View>
 
-      <Text style={styles.label}>CEP de Origem</Text>
-      <TextInput
-        style={styles.input}
-        value={originCep}
-        onChangeText={setOriginCep}
-        placeholder="Ex: 00000000"
-        keyboardType="numeric"
-        maxLength={8}
-      />
+      {/* Dimensões lado a lado */}
+      <View style={styles.dimensionsRow}>
+      <View style={styles.dimensionGroup}>
+        <Text style={styles.label}>Comprimento</Text>
+        <View style={styles.inputWithUnit}>
+          <TextInput
+            style={styles.input}
+            value={length}
+            onChangeText={setLength}
+            placeholder="Ex: 20"
+            keyboardType="numeric"
+          />
+          <Text style={styles.unit}>cm</Text>
+        </View>
+      </View>
+      
+      <View style={styles.dimensionGroup}>
+        <Text style={styles.label}>Largura</Text>
+        <View style={styles.inputWithUnit}>
+          <TextInput
+            style={styles.input}
+            value={width}
+            onChangeText={setWidth}
+            placeholder="Ex: 15"
+            keyboardType="numeric"
+          />
+          <Text style={styles.unit}>cm</Text>
+        </View>
+      </View>
+      
+      <View style={styles.dimensionGroup}>
+        <Text style={styles.label}>Altura</Text>
+        <View style={styles.inputWithUnit}>
+          <TextInput
+            style={styles.input}
+            value={height}
+            onChangeText={setHeight}
+            placeholder="Ex: 10"
+            keyboardType="numeric"
+          />
+          <Text style={styles.unit}>cm</Text>
+        </View>
+      </View>
+    </View>
 
-      <Text style={styles.label}>CEP de Destino</Text>
-      <TextInput
-        style={styles.input}
-        value={destinationCep}
-        onChangeText={setDestinationCep}
-        placeholder="Ex: 00000000"
-        keyboardType="numeric"
-        maxLength={8}
-      />
+      {/* Peso e valor segurado lado a lado */}
+      <View style={styles.row}>
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Peso</Text>
+          <View style={styles.inputWithUnit}>
+            <TextInput
+              style={styles.input}
+              value={weight}
+              onChangeText={setWeight}
+              placeholder="Ex: 0.5"
+              keyboardType="numeric"
+            />
+            <Text style={styles.unit}>kg</Text>
+          </View>
+        </View>
+        
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Valor Segurado</Text>
+          <View style={styles.inputWithUnit}>
+            <TextInput
+              style={styles.input}
+              value={insuranceValue}
+              onChangeText={setInsuranceValue}
+              placeholder="Ex: 50"
+              keyboardType="numeric"
+            />
+            <Text style={styles.unit}>R$</Text>
+          </View>
+        </View>
+      </View>
 
-      <Text style={styles.label}>Comprimento (cm)</Text>
-      <TextInput
-        style={styles.input}
-        value={length}
-        onChangeText={setLength}
-        placeholder="Ex: 20"
-        keyboardType="numeric"
-      />
+      {/* Tolerância de custo */}
+      <Text style={styles.label}>Tolerância de Custo</Text>
+      <View style={styles.inputWithUnit}>
+        <TextInput
+          style={styles.input}
+          value={costTolerance}
+          onChangeText={setCostTolerance}
+          placeholder="Ex: 1.00"
+          keyboardType="numeric"
+        />
+        <Text style={styles.unit}>R$</Text>
+      </View>
 
-      <Text style={styles.label}>Largura (cm)</Text>
-      <TextInput
-        style={styles.input}
-        value={width}
-        onChangeText={setWidth}
-        placeholder="Ex: 15"
-        keyboardType="numeric"
-      />
+      {/* RangeSliders com menos espaçamento */}
+      <View style={styles.sliderGroup}>
+        <Text style={styles.sectionTitle}>Variação de Comprimento</Text>
+        <RangeSlider
+          values={[deviationRange.length.min, deviationRange.length.max]}
+          min={0}
+          max={5}
+          onValuesChange={(values) => {
+            updateDeviationRange('length', 'min', values[0]);
+            updateDeviationRange('length', 'max', values[1]);
+          }}
+        />
+      </View>
 
-      <Text style={styles.label}>Altura (cm)</Text>
-      <TextInput
-        style={styles.input}
-        value={height}
-        onChangeText={setHeight}
-        placeholder="Ex: 10"
-        keyboardType="numeric"
-      />
+      <View style={styles.sliderGroup}>
+        <Text style={styles.sectionTitle}>Variação de Largura</Text>
+        <RangeSlider
+          values={[deviationRange.width.min, deviationRange.width.max]}
+          min={0}
+          max={5}
+          onValuesChange={(values) => {
+            updateDeviationRange('width', 'min', values[0]);
+            updateDeviationRange('width', 'max', values[1]);
+          }}
+        />
+      </View>
 
-      <Text style={styles.label}>Peso (kg)</Text>
-      <TextInput
-        style={styles.input}
-        value={weight}
-        onChangeText={setWeight}
-        placeholder="Ex: 0.5"
-        keyboardType="numeric"
-      />
-
-      <Text style={styles.label}>Valor Segurado (R$)</Text>
-      <TextInput
-        style={styles.input}
-        value={insuranceValue}
-        onChangeText={setInsuranceValue}
-        placeholder="Ex: 50"
-        keyboardType="numeric"
-      />
-
-      <Text style={styles.label}>Tolerância de Custo (R$)</Text>
-      <TextInput
-        style={styles.input}
-        value={costTolerance}
-        onChangeText={setCostTolerance}
-        placeholder="Ex: 1.00"
-        keyboardType="numeric"
-      />
-
-      <Text style={styles.sectionTitle}>Variação de Comprimento</Text>
-      <RangeSlider
-        values={[deviationRange.length.min, deviationRange.length.max]}
-        min={0}
-        max={5}
-        onValuesChange={(values) => {
-          updateDeviationRange('length', 'min', values[0]);
-          updateDeviationRange('length', 'max', values[1]);
-        }}
-      />
-
-      <Text style={styles.sectionTitle}>Variação de Largura</Text>
-      <RangeSlider
-        values={[deviationRange.width.min, deviationRange.width.max]}
-        min={0}
-        max={5}
-        onValuesChange={(values) => {
-          updateDeviationRange('width', 'min', values[0]);
-          updateDeviationRange('width', 'max', values[1]);
-        }}
-      />
-
-      <Text style={styles.sectionTitle}>Variação de Altura</Text>
-      <RangeSlider
-        values={[deviationRange.height.min, deviationRange.height.max]}
-        min={0}
-        max={5}
-        onValuesChange={(values) => {
-          updateDeviationRange('height', 'min', values[0]);
-          updateDeviationRange('height', 'max', values[1]);
-        }}
-      />
+      <View style={styles.sliderGroup}>
+        <Text style={styles.sectionTitle}>Variação de Altura</Text>
+        <RangeSlider
+          values={[deviationRange.height.min, deviationRange.height.max]}
+          min={0}
+          max={5}
+          onValuesChange={(values) => {
+            updateDeviationRange('height', 'min', values[0]);
+            updateDeviationRange('height', 'max', values[1]);
+          }}
+        />
+      </View>
 
       {isLoading ? (
         <View style={styles.progressContainer}>
@@ -297,23 +351,30 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: '#f7f7f7',
   },
-  title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
-    color: '#333',
+  contentContainer: {
+    paddingBottom: 20,
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    flexWrap: 'wrap',
+  },
+  inputGroup: {
+    width: (screenWidth - 50) / 2, // 50 = padding * 2 + margin
+    marginBottom: 1,
+  },
+  sliderGroup: {
+    marginBottom: 1,
   },
   label: {
-    fontSize: 16,
-    marginBottom: 5,
+    fontSize: 14,
+    marginBottom: 1,
     color: '#333',
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 15,
-    marginBottom: 10,
+    fontSize: 14,
+    marginBottom: 5,
     color: '#333',
   },
   input: {
@@ -322,24 +383,44 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 5,
     paddingHorizontal: 10,
-    marginBottom: 15,
     backgroundColor: '#fff',
+    flex: 1,
+  },
+  inputWithUnit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 5,
+    backgroundColor: '#fff',
+  },
+  unit: {
+    paddingHorizontal: 10,
+    color: '#555',
   },
   button: {
     backgroundColor: '#007bff',
-    padding: 15,
+    padding: 10,
     borderRadius: 5,
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 5,
   },
   buttonText: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   progressContainer: {
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 1,
+  },
+  dimensionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 1,
+  },
+  dimensionGroup: {
+    width: '31%',  // 32% para caber 3 com espaçamento
   },
 });
 

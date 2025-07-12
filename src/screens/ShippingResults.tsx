@@ -30,6 +30,13 @@ const ShippingResults = ({ route }: any) => {
   const [modalDeviationRange, setModalDeviationRange] = useState<DeviationRange>(initialDeviationRange);
   const [modalCostTolerance, setModalCostTolerance] = useState<string>(initialCostTolerance.toString());
 
+  // Encontrar a opção sem alteração (0,0,0) nos resultados originais
+  const noDeviationResult = results.find((item: ShippingRate) => 
+    item.deviation.length === 0 &&
+    item.deviation.width === 0 &&
+    item.deviation.height === 0
+  );
+
   useEffect(() => {
     const loadCarrierPreferences = async () => {
       try {
@@ -57,7 +64,6 @@ const ShippingResults = ({ route }: any) => {
     applyFilters();
   }, [results, showUnavailable, selectedCarriers, globalDeviationRange, costTolerance]);
 
-  // Função para calcular distribuição (desempate)
   const calculateDistribution = (deviations: number[]) => {
     const mean = deviations.reduce((sum, val) => sum + val, 0) / 3;
     return deviations.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0);
@@ -90,31 +96,6 @@ const ShippingResults = ({ route }: any) => {
       );
     });
 
-    // Separar o resultado sem desvios (0,0,0)
-    const noDeviationResults = filtered.filter(
-      (item: ShippingRate) =>
-        item.deviation.length === 0 &&
-        item.deviation.width === 0 &&
-        item.deviation.height === 0
-    );
-
-    // Ordenar os resultados sem desvio pelo menor preço
-    noDeviationResults.sort((a: ShippingRate, b: ShippingRate) => parseFloat(a.price) - parseFloat(b.price));
-
-    const bestNoDeviationResult = noDeviationResults.length > 0 ? [noDeviationResults[0]] : [];
-
-    // Remover o melhor resultado sem desvio da lista geral
-    filtered = filtered.filter(
-      (item: ShippingRate) =>
-        !(
-          item.deviation.length === 0 &&
-          item.deviation.width === 0 &&
-          item.deviation.height === 0 &&
-          item.company.name === bestNoDeviationResult[0]?.company.name &&
-          item.name === bestNoDeviationResult[0]?.name
-        )
-    );
-
     // Ordenar com tolerância de custo e critérios de desempate
     filtered.sort((a: ShippingRate, b: ShippingRate) => {
       const priceA = parseFloat(a.price);
@@ -124,7 +105,6 @@ const ShippingResults = ({ route }: any) => {
         if (b.totalSize !== a.totalSize) {
           return b.totalSize - a.totalSize;
         } else {
-          // Desempate pela distribuição das variações
           const distA = calculateDistribution([a.deviation.length, a.deviation.width, a.deviation.height]);
           const distB = calculateDistribution([b.deviation.length, b.deviation.width, b.deviation.height]);
           return distA - distB;
@@ -134,13 +114,26 @@ const ShippingResults = ({ route }: any) => {
       }
     });
 
-    // Combinar o melhor resultado sem desvio com os demais
-    setFilteredResults([...bestNoDeviationResult, ...filtered]);
+    // Garantir que a opção sem alteração sempre apareça no topo
+    let finalResults = [...filtered];
+    
+    if (noDeviationResult) {
+      // Remover a opção sem alteração se já estiver na lista (pode estar em outra posição)
+      finalResults = finalResults.filter(item => 
+        !(item.deviation.length === 0 && 
+          item.deviation.width === 0 && 
+          item.deviation.height === 0)
+      );
+      
+      // Adicionar a opção sem alteração no topo
+      finalResults.unshift(noDeviationResult);
+    }
+
+    setFilteredResults(finalResults);
   };
 
-  // Apenas cores para variações positivas
   const getDeviationColor = (variation: number): string => {
-    if (variation === 0) return '#808080'; // Cinza para zero
+    if (variation === 0) return '#808080';
     
     const ratio = variation / 5;
     const r = Math.round(128 - 128 * ratio);

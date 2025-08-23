@@ -29,7 +29,9 @@ const CalculatorStack = () => (
 const App = () => {
   return (
     <NavigationContainer>
-      <Drawer.Navigator initialRouteName="Calculadora">
+      <Drawer.Navigator screenOptions={{
+    swipeEdgeWidth: 0,
+  }} initialRouteName="Calculadora">
         <Drawer.Screen name="Calculadora" component={CalculatorStack} />
         <Drawer.Screen name="Histórico" component={ShippingHistory} />
         <Drawer.Screen name="Gerenciador de API" component={ApiManager} />

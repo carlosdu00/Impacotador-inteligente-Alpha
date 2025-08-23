@@ -1,6 +1,6 @@
 // components/RangeSlider.tsx
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 
 interface RangeSliderProps {
@@ -23,54 +23,53 @@ const RangeSlider: React.FC<RangeSliderProps> = ({ values, min, max, onValuesCha
         allowOverlap={false}
         snapped
         minMarkerOverlapDistance={40}
-        customMarker={() => (
+        customMarker={({ currentValue }) => (
           <View style={styles.marker}>
-            <View style={styles.markerInner} />
+            <View style={styles.markerInner}>
+              <View style={styles.valueContainer}>
+                <Text style={styles.markerLabel}>{currentValue}</Text>
+              </View>
+            </View>
           </View>
         )}
         selectedStyle={styles.selectedTrack}
         unselectedStyle={styles.unselectedTrack}
         trackStyle={styles.track}
       />
-      <View style={styles.labelsContainer}>
-        <Text style={styles.label}>{values[0]}</Text>
-        <Text style={styles.label}>{values[1]}</Text>
-      </View>
     </View>
   );
 };
 
+import { Text } from 'react-native';
+
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    marginBottom: 1,
-  },
-  labelsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    paddingHorizontal: 10,
-  },
-  label: {
-    fontSize: 14,
-    color: '#333',
+    marginVertical: 8,
   },
   marker: {
-    height: 30,
-    width: 30,
-    borderRadius: 15,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ccc',
+    height: 32,
+    width: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 2,
   },
   markerInner: {
-    height: 15,
-    width: 15,
-    borderRadius: 7.5,
+    height: 28,
+    width: 28,
+    borderRadius: 14,
     backgroundColor: '#1a9274',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  valueContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  markerLabel: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   selectedTrack: {
     backgroundColor: '#1a9274',

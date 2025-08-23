@@ -182,7 +182,7 @@ const ShippingResults = ({ route }: any) => {
             {!isUnavailable && (
               <>
                 <Text style={styles.infoText}>
-                  Entrega em {item.deliveryTime} dias úteis
+                  {item.deliveryTime} dias úteis
                 </Text>
                 <Text style={styles.infoText}>
                   Volume: +{item.volumeGain?.toFixed(2)}%

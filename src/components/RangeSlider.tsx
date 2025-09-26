@@ -1,6 +1,6 @@
-// components/RangeSlider.tsx
+// src/components/RangeSlider.tsx
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Text, Dimensions } from 'react-native';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 
 interface RangeSliderProps {
@@ -8,14 +8,20 @@ interface RangeSliderProps {
   min: number;
   max: number;
   onValuesChange: (values: number[]) => void;
+  // opcional: passar sliderLength externo
+  sliderLength?: number;
 }
 
-const RangeSlider: React.FC<RangeSliderProps> = ({ values, min, max, onValuesChange }) => {
+const { width: screenWidth } = Dimensions.get('window');
+
+const RangeSlider: React.FC<RangeSliderProps> = ({ values, min, max, onValuesChange, sliderLength }) => {
+  const computedSliderLength = sliderLength ?? Math.round(screenWidth * 0.75);
+
   return (
     <View style={styles.container}>
       <MultiSlider
         values={values}
-        sliderLength={280}
+        sliderLength={computedSliderLength}
         onValuesChange={onValuesChange}
         min={min}
         max={max}
@@ -39,8 +45,6 @@ const RangeSlider: React.FC<RangeSliderProps> = ({ values, min, max, onValuesCha
     </View>
   );
 };
-
-import { Text } from 'react-native';
 
 const styles = StyleSheet.create({
   container: {

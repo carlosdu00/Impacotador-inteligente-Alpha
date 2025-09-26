@@ -1,17 +1,31 @@
+// src/utils/utils.ts
 import axios from 'axios';
 import { ShippingRate, DeviationRange } from '../types/types';
-import { EXPO_melhorEnvioToken } from "@env";
+import { EXPO_melhorEnvioToken } from '@env';
 
-const melhorEnvioToken = EXPO_melhorEnvioToken;
+const melhorEnvioToken = EXPO_melhorEnvioToken || '';
 
 let requestTimestamps: number[] = [];
-const MAX_REQUESTS_PER_MINUTE = 250;
-const REQUEST_THRESHOLD = 250;
+const REQUESTS_WINDOW_MS = 60_000; // 1 minuto
+const MAX_REQUESTS_PER_MINUTE = 250; // ajuste conforme sua cota real
+const MAX_CONCURRENT_REQUESTS = 10; // controlar concorrência localmente
 
 export const getCurrentRequestCount = () => {
   const now = Date.now();
-  requestTimestamps = requestTimestamps.filter((timestamp) => now - timestamp < 60000);
+  requestTimestamps = requestTimestamps.filter((t) => now - t < REQUESTS_WINDOW_MS);
   return requestTimestamps.length;
+};
+
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+/**
+ * Gera um array com os valores entre min e max inclusive (assume min >= 0)
+ * Ex: rangeToArray(0, 2) => [0, 1, 2]
+ */
+const rangeToArray = (min: number, max: number) => {
+  const arr: number[] = [];
+  for (let i = min; i <= max; i++) arr.push(i);
+  return arr;
 };
 
 export const fetchShippingRates = async (
@@ -26,16 +40,26 @@ export const fetchShippingRates = async (
   costTolerance: number,
   onProgress?: (progress: number, completedRequests: number, totalRequests: number) => void
 ): Promise<ShippingRate[]> => {
-  // Garantir que a variação 0 está sempre incluída
-  const lengthDeviations = [0, ...Array.from({length: deviationRange.length.max}, (_, i) => i + 1)];
-  const widthDeviations = [0, ...Array.from({length: deviationRange.width.max}, (_, i) => i + 1)];
-  const heightDeviations = [0, ...Array.from({length: deviationRange.height.max}, (_, i) => i + 1)];
-
+  // Parse numbers
   const originalDimensions = {
-    length: +length,
-    width: +width,
-    height: +height,
+    length: Number(length),
+    width: Number(width),
+    height: Number(height),
   };
+
+  // Garantir que min não seja negativo (o projeto não usa variações negativas)
+  const lengthMin = Math.max(0, deviationRange.length.min);
+  const widthMin = Math.max(0, deviationRange.width.min);
+  const heightMin = Math.max(0, deviationRange.height.min);
+
+  const lengthDeviations = rangeToArray(lengthMin, Math.max(lengthMin, deviationRange.length.max));
+  const widthDeviations = rangeToArray(widthMin, Math.max(widthMin, deviationRange.width.max));
+  const heightDeviations = rangeToArray(heightMin, Math.max(heightMin, deviationRange.height.max));
+
+  // Garantir que 0 esteja presente (opção sem alteração)
+  if (!lengthDeviations.includes(0)) lengthDeviations.unshift(0);
+  if (!widthDeviations.includes(0)) widthDeviations.unshift(0);
+  if (!heightDeviations.includes(0)) heightDeviations.unshift(0);
 
   const dimensionVariations: {
     length: number;
@@ -44,18 +68,18 @@ export const fetchShippingRates = async (
     deviation: { length: number; width: number; height: number };
   }[] = [];
 
-  for (const dLength of lengthDeviations) {
-    for (const dWidth of widthDeviations) {
-      for (const dHeight of heightDeviations) {
+  for (const dL of lengthDeviations) {
+    for (const dW of widthDeviations) {
+      for (const dH of heightDeviations) {
+        const newL = Math.max(originalDimensions.length + dL, 1);
+        const newW = Math.max(originalDimensions.width + dW, 1);
+        const newH = Math.max(originalDimensions.height + dH, 1);
+
         dimensionVariations.push({
-          length: Math.max(+length + dLength, 1),
-          width: Math.max(+width + dWidth, 1),
-          height: Math.max(+height + dHeight, 1),
-          deviation: {
-            length: dLength,
-            width: dWidth,
-            height: dHeight,
-          },
+          length: newL,
+          width: newW,
+          height: newH,
+          deviation: { length: dL, width: dW, height: dH },
         });
       }
     }
@@ -69,22 +93,28 @@ export const fetchShippingRates = async (
     Accept: 'application/json',
     Authorization: `Bearer ${melhorEnvioToken}`,
     'Content-Type': 'application/json',
-    'User-Agent': 'Aplicação',
   };
 
-  const MAX_CONCURRENT_REQUESTS = 10;
+  // Função para calcular a distribuição das variações (menor = mais "uniforme")
+  const calculateDistribution = (deviations: number[]) => {
+    const mean = deviations.reduce((s, v) => s + v, 0) / deviations.length;
+    return deviations.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0);
+  };
 
+  // Executa em chunks controlando concorrência e throttle por minuto
   for (let i = 0; i < dimensionVariations.length; i += MAX_CONCURRENT_REQUESTS) {
-    const chunk = dimensionVariations.slice(i, i + MAX_CONCURRENT_REQUESTS);
-
+    // Verificar limite de requisições por minuto
     const now = Date.now();
-    requestTimestamps = requestTimestamps.filter((timestamp) => now - timestamp < 60000);
+    requestTimestamps = requestTimestamps.filter((t) => now - t < REQUESTS_WINDOW_MS);
 
-    if (requestTimestamps.length >= REQUEST_THRESHOLD) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      i -= MAX_CONCURRENT_REQUESTS;
+    if (requestTimestamps.length >= MAX_REQUESTS_PER_MINUTE) {
+      // espera um segundo e recheca
+      await sleep(1000);
+      i -= MAX_CONCURRENT_REQUESTS; // volta o bloco para tentar de novo
       continue;
     }
+
+    const chunk = dimensionVariations.slice(i, i + MAX_CONCURRENT_REQUESTS);
 
     const promises = chunk.map(async (dim) => {
       const payload = {
@@ -95,8 +125,8 @@ export const fetchShippingRates = async (
             width: dim.width,
             height: dim.height,
             length: dim.length,
-            weight: +weight,
-            insurance_value: +insuranceValue,
+            weight: Number(weight),
+            insurance_value: Number(insuranceValue),
             quantity: 1,
           },
         ],
@@ -108,33 +138,54 @@ export const fetchShippingRates = async (
         const response = await axios.post(
           'https://www.melhorenvio.com.br/api/v2/me/shipment/calculate',
           payload,
-          { headers }
+          { headers, timeout: 20_000 }
         );
+
+        // Normalizar resposta para array
+        let items: any[] = [];
+        if (Array.isArray(response.data)) {
+          items = response.data;
+        } else if (Array.isArray(response.data.services)) {
+          items = response.data.services;
+        } else if (Array.isArray(response.data.data)) {
+          items = response.data.data;
+        } else if (response.data && typeof response.data === 'object') {
+          items = [response.data];
+        }
 
         allResults.push(
-          ...response.data.map((item: any) => {
-            const totalSize = dim.length + dim.width + dim.height;
-            
-            // Calcular volume original e novo volume
-            const originalVolume = originalDimensions.length * originalDimensions.width * originalDimensions.height;
-            const newVolume = (originalDimensions.length + dim.deviation.length) * 
-                             (originalDimensions.width + dim.deviation.width) * 
-                             (originalDimensions.height + dim.deviation.height);
-            const volumeGain = ((newVolume - originalVolume) / originalVolume) * 100;
+          ...items.map((item: any) => {
+            const originalVolume =
+              originalDimensions.length * originalDimensions.width * originalDimensions.height;
+            const newVolume =
+              (originalDimensions.length + dim.deviation.length) *
+              (originalDimensions.width + dim.deviation.width) *
+              (originalDimensions.height + dim.deviation.height);
+            const volumeGain = originalVolume > 0 ? ((newVolume - originalVolume) / originalVolume) * 100 : 0;
+
+            const priceStr = item.price !== undefined && item.price !== null ? String(item.price) : '';
 
             return {
-              ...item,
-              deliveryTime: item.delivery_time, // Extrair prazo de entrega
-              volumeGain, // Adicionar ganho de volume em porcentagem
+              id: item.id ?? `${item.service_id ?? item.name ?? Math.random().toString(36).slice(2)}`,
+              name: item.name ?? item.service_name ?? 'Serviço',
+              company: {
+                name: item.company?.name ?? item.carrier_name ?? 'Transportadora',
+                picture: item.company?.picture ?? item.logo ?? '',
+              },
+              price: priceStr,
+              error: item.error_message ?? item.error ?? undefined,
               deviation: dim.deviation,
-              totalSize,
+              totalSize: dim.length + dim.width + dim.height,
               originalDimensions,
-            };
+              deliveryTime: item.delivery_time ?? item.estimated_delivery_time ?? undefined,
+              volumeGain,
+            } as ShippingRate;
           })
         );
-      } catch (error) {
-        console.error('Erro na solicitação:', error);
+      } catch (error: any) {
+        console.error('[fetchShippingRates] erro na solicitação para dim', dim, error?.message ?? error);
       } finally {
+        // registrar timestamp independente do resultado (conta para o throttle)
         requestTimestamps.push(Date.now());
         completedRequests++;
         if (onProgress) {
@@ -147,24 +198,20 @@ export const fetchShippingRates = async (
     await Promise.all(promises);
   }
 
+  // Separar disponíveis e indisponíveis
   const availableResults = allResults.filter((item) => item.price && !item.error);
   const unavailableResults = allResults.filter((item) => !item.price || item.error);
 
-  // Função para calcular a distribuição das variações (quanto menor, mais distribuído)
-  const calculateDistribution = (deviations: number[]) => {
-    const mean = deviations.reduce((sum, val) => sum + val, 0) / 3;
-    return deviations.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0);
-  };
-
+  // Ordenar disponívels com base em preço + desempate
   availableResults.sort((a, b) => {
-    const priceA = parseFloat(a.price);
-    const priceB = parseFloat(b.price);
-    
+    const priceA = parseFloat(a.price || '0') || Infinity;
+    const priceB = parseFloat(b.price || '0') || Infinity;
+
     if (Math.abs(priceA - priceB) <= costTolerance) {
       if (b.totalSize !== a.totalSize) {
+        // priorizar caixas maiores (maior totalSize)
         return b.totalSize - a.totalSize;
       } else {
-        // Desempate pela distribuição das variações
         const distA = calculateDistribution([a.deviation.length, a.deviation.width, a.deviation.height]);
         const distB = calculateDistribution([b.deviation.length, b.deviation.width, b.deviation.height]);
         return distA - distB;

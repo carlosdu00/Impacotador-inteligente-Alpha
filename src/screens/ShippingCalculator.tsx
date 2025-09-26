@@ -1,3 +1,5 @@
+// src/screens/ShippingCalculator.tsx
+
 import React, { useState, useEffect } from 'react';
 import { 
   View, 
@@ -13,17 +15,20 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RangeSlider from '../components/RangeSlider';
 import { fetchShippingRates } from '../utils/utils';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import firebase from '../services/firebaseConfig';
 import { DeviationRange, ShippingRate } from '../types/types';
 
 const screenWidth = Dimensions.get('window').width;
 
 type NavigationProps = {
-  navigate: (screen: string, params: any) => void;
+  navigate: (screen: string, params?: any) => void;
 };
 
 const ShippingCalculator = () => {
+  const navigation = useNavigation<NavigationProps>();
+  const route = useRoute<any>();
+
   const [originCep, setOriginCep] = useState('');
   const [destinationCep, setDestinationCep] = useState('');
   const [length, setLength] = useState('');
@@ -42,14 +47,13 @@ const ShippingCalculator = () => {
   const [progress, setProgress] = useState(0);
   const [completedRequests, setCompletedRequests] = useState(0);
   const [totalRequests, setTotalRequests] = useState(0);
-  
-  const navigation = useNavigation<NavigationProps>();
 
+  // Carregar últimos inputs do AsyncStorage, mas não sobrescrever se vier prefill via rota
   useEffect(() => {
     const loadLastInputs = async () => {
       try {
         const savedInputs = await AsyncStorage.getItem('lastInputs');
-        if (savedInputs) {
+        if (savedInputs && !route.params?.prefill) {
           const { 
             originCep: savedOrigin, 
             destinationCep: savedDest, 
@@ -81,7 +85,30 @@ const ShippingCalculator = () => {
       }
     };
     loadLastInputs();
-  }, []);
+  }, [route.params?.prefill]);
+
+  // Se veio prefill na rota (por exemplo vindo do histórico), aplicar nos estados
+  useEffect(() => {
+    const prefill = route.params?.prefill;
+    if (prefill) {
+      setOriginCep(prefill.originCep ?? '');
+      setDestinationCep(prefill.destinationCep ?? '');
+      setLength(String(prefill.length ?? ''));
+      setWidth(String(prefill.width ?? ''));
+      setHeight(String(prefill.height ?? ''));
+      setWeight(String(prefill.weight ?? ''));
+      setInsuranceValue(String(prefill.insuranceValue ?? ''));
+      setCostTolerance(String(prefill.costTolerance ?? '1'));
+
+      // Garantir que não existam valores negativos no deviationRange
+      const safeRange = prefill.deviationRange ?? deviationRange;
+      setDeviationRange({
+        length: { min: Math.max(0, safeRange.length.min ?? 0), max: Math.max(0, safeRange.length.max ?? 0) },
+        width: { min: Math.max(0, safeRange.width.min ?? 0), max: Math.max(0, safeRange.width.max ?? 0) },
+        height: { min: Math.max(0, safeRange.height.min ?? 0), max: Math.max(0, safeRange.height.max ?? 0) },
+      });
+    }
+  }, [route.params?.prefill]);
 
   const handleCalculate = async () => {
     if (!originCep || !destinationCep || !length || !width || !height || !weight || !insuranceValue) {
@@ -147,7 +174,7 @@ const ShippingCalculator = () => {
         results,
         deviationRange,
         costTolerance: parseFloat(costTolerance),
-      });
+      } as never);
     } catch (error) {
       console.error('Erro ao calcular fretes:', error);
       Alert.alert('Erro', 'Ocorreu um erro ao calcular os fretes. Por favor, tente novamente.');
@@ -161,7 +188,7 @@ const ShippingCalculator = () => {
       ...prev,
       [dimension]: {
         ...prev[dimension],
-        [value]: newValue
+        [value]: Math.max(0, newValue) // garantir não negativo
       }
     }));
   };

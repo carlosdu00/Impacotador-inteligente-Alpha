@@ -7,6 +7,7 @@ import ShippingCalculator from './src/screens/ShippingCalculator';
 import ShippingResults from './src/screens/ShippingResults';
 import ShippingHistory from './src/screens/ShippingHistory';
 import ApiManager from './src/screens/ApiManager';
+import Personalization from './src/screens/PersonalizationScreen';
 
 const Stack = createStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -34,6 +35,7 @@ const App = () => {
   }} initialRouteName="Calculadora">
         <Drawer.Screen name="Calculadora" component={CalculatorStack} />
         <Drawer.Screen name="Histórico" component={ShippingHistory} />
+        <Drawer.Screen name="Personalização" component={Personalization} />
         <Drawer.Screen name="Gerenciador de API" component={ApiManager} />
       </Drawer.Navigator>
     </NavigationContainer>

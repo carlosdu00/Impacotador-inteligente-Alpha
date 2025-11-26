@@ -1,14 +1,14 @@
 // src/screens/ShippingCalculator.tsx
 
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  StyleSheet, 
-  Alert, 
-  ActivityIndicator, 
-  TouchableOpacity, 
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  TouchableOpacity,
   ScrollView,
   Dimensions,
   Modal,
@@ -31,15 +31,28 @@ type NavigationProps = {
 };
 
 type Personalization = {
-  operationalCosts?: Record<string, number>;
+  operationalCosts?: Record<string, number | { operationalCost: number }>;
   baldeacoes?: string[];
-  packagingProtectionCm?: { standard?: number; sensitive?: number };
+  packagingProtectionCm?: { normal?: number; extra?: number };
 };
 
 const defaultDeviationRange: DeviationRange = {
   length: { min: 0, max: 5 },
   width: { min: 0, max: 5 },
   height: { min: 0, max: 5 },
+};
+
+/**
+ * Converte string para float e garante fallback numérico se inválido.
+ * Retorna fallback se parse resultar em NaN.
+ */
+const safeParseFloat = (value: string | number | undefined | null, fallback = 1): number => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallback;
+  }
+  const parsed = parseFloat(String(value).replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : fallback;
 };
 
 const ShippingCalculator = () => {
@@ -62,7 +75,7 @@ const ShippingCalculator = () => {
   const [totalRequests, setTotalRequests] = useState(0);
 
   const [personalization, setPersonalization] = useState<Personalization>({});
-  const [sensitiveProduct, setSensitiveProduct] = useState(false);
+  const [protectionMode, setProtectionMode] = useState<'none' | 'normal' | 'extra'>('none');
 
   const [baldeacaoModalVisible, setBaldeacaoModalVisible] = useState(false);
   const [baldeacaoResults, setBaldeacaoResults] = useState<any[]>([]);
@@ -83,7 +96,7 @@ const ShippingCalculator = () => {
           setInsuranceValue(parsed.insuranceValue ?? '');
           setCostTolerance(parsed.costTolerance ?? '1');
           setDeviationRange(parsed.deviationRange ?? defaultDeviationRange);
-          setSensitiveProduct(parsed.sensitiveProduct ?? false);
+          setProtectionMode(parsed.protectionMode ?? 'none');
         }
       } catch (error) {
         console.error('Erro ao carregar últimos inputs:', error);
@@ -99,12 +112,9 @@ const ShippingCalculator = () => {
         if (stored) {
           setPersonalization(JSON.parse(stored));
         } else {
-          // se não tiver local, tentar garantir via DB
           const ops = await ensureOperationalCostsInDb();
-          // preparar estrutura de personalization local
-          const pack = { standard: 0, sensitive: 0 };
-          const p = { operationalCosts: {} as Record<string, number>, baldeacoes: [], packagingProtectionCm: pack };
-          // converter ops para apenas operationalCosts: carrier -> operationalCost (ops[carrier].operationalCost)
+          const pack = { normal: 0, extra: 0 };
+          const p: Personalization = { operationalCosts: {}, baldeacoes: [], packagingProtectionCm: pack };
           if (ops && Object.keys(ops).length > 0) {
             const map: Record<string, number> = {};
             for (const k of Object.keys(ops)) {
@@ -122,7 +132,6 @@ const ShippingCalculator = () => {
     loadPersonalization();
   }, []);
 
-  // Se veio prefill na rota (por exemplo vindo do histórico), aplicar nos estados
   useEffect(() => {
     const prefill = route.params?.prefill;
     if (prefill) {
@@ -142,7 +151,7 @@ const ShippingCalculator = () => {
         height: { min: Math.max(0, safeRange.height.min ?? 0), max: Math.max(0, safeRange.height.max ?? 0) },
       });
 
-      setSensitiveProduct(Boolean(prefill.sensitiveProduct));
+      setProtectionMode(prefill.protectionMode ?? 'none');
     }
   }, [route.params?.prefill]);
 
@@ -167,11 +176,11 @@ const ShippingCalculator = () => {
       insuranceValue,
       costTolerance,
       deviationRange,
-      sensitiveProduct
+      protectionMode
     };
     await AsyncStorage.setItem('lastInputs', JSON.stringify(inputsToSave));
 
-    // garantir que exista operationalCosts em personalization (se não, cria via DB)
+    // garantir operationalCosts
     let currentPersonalization = personalization;
     if (!personalization?.operationalCosts || Object.keys(personalization.operationalCosts).length === 0) {
       try {
@@ -202,6 +211,13 @@ const ShippingCalculator = () => {
     }
   };
 
+  const getPackagingProtectionUsed = (personal: Personalization | undefined) => {
+    const pack = personal?.packagingProtectionCm ?? personalization?.packagingProtectionCm ?? { normal: 0, extra: 0 };
+    if (protectionMode === 'normal') return pack.normal ?? 0;
+    if (protectionMode === 'extra') return pack.extra ?? 0;
+    return 0;
+  };
+
   const proceedCalculate = async (useBaldeacaoCep?: string, currentPersonalization?: Personalization) => {
     setIsLoading(true);
     setProgress(0);
@@ -210,9 +226,10 @@ const ShippingCalculator = () => {
 
     const finalDestination = useBaldeacaoCep ?? destinationCep;
     try {
-      const packagingProtectionCm = sensitiveProduct
-        ? (currentPersonalization?.packagingProtectionCm?.sensitive ?? personalization?.packagingProtectionCm?.sensitive ?? 0)
-        : (currentPersonalization?.packagingProtectionCm?.standard ?? personalization?.packagingProtectionCm?.standard ?? 0);
+      const packagingProtectionCm = getPackagingProtectionUsed(currentPersonalization);
+
+      // Garantir costTolerance numérico seguro
+      const costToleranceNumber = safeParseFloat(costTolerance, 1);
 
       const results = await fetchShippingRates(
         originCep,
@@ -223,34 +240,42 @@ const ShippingCalculator = () => {
         weight,
         insuranceValue,
         deviationRange,
-        parseFloat(costTolerance),
+        costToleranceNumber,
         (progress, completed, total) => {
           setProgress(progress);
           setCompletedRequests(completed);
           setTotalRequests(total);
         },
-        currentPersonalization?.operationalCosts ?? personalization?.operationalCosts,
+        (currentPersonalization?.operationalCosts as any) ?? (personalization?.operationalCosts as any),
         packagingProtectionCm
       );
 
       const timestamp = new Date().toISOString();
-      const queryRef = firebase.database().ref('queries').push();
-      await queryRef.set({
+
+      // Preparar objeto com números limpos para salvar no Firebase
+      const queryToSave = {
         originCep,
         destinationCep: finalDestination,
-        dimensions: { length, width, height },
-        weight,
-        insuranceValue,
+        dimensions: {
+          length: safeParseFloat(length, 0),
+          width: safeParseFloat(width, 0),
+          height: safeParseFloat(height, 0),
+        },
+        weight: safeParseFloat(weight, 0),
+        insuranceValue: safeParseFloat(insuranceValue, 0),
         timestamp,
         deviationRange,
-        costTolerance: parseFloat(costTolerance),
-        sensitiveProduct,
-      });
+        costTolerance: costToleranceNumber,
+        protectionMode,
+      };
+
+      const queryRef = firebase.database().ref('queries').push();
+      await queryRef.set(queryToSave);
 
       navigation.navigate('Results', {
         results,
         deviationRange,
-        costTolerance: parseFloat(costTolerance),
+        costTolerance: costToleranceNumber,
       } as never);
     } catch (error) {
       console.error('Erro ao calcular fretes:', error);
@@ -264,9 +289,7 @@ const ShippingCalculator = () => {
     setBaldeacaoLoading(true);
     setBaldeacaoModalVisible(true);
     try {
-      const packagingProtectionCm = sensitiveProduct
-        ? (personalization?.packagingProtectionCm?.sensitive ?? 0)
-        : (personalization?.packagingProtectionCm?.standard ?? 0);
+      const packagingProtectionCm = getPackagingProtectionUsed(undefined);
 
       const results = await computeBaldeacaoComparisons(
         originCep,
@@ -293,9 +316,9 @@ const ShippingCalculator = () => {
     setBaldeacaoModalVisible(false);
     setIsLoading(true);
     try {
-      const packagingProtectionCm = sensitiveProduct
-        ? (personalization?.packagingProtectionCm?.sensitive ?? 0)
-        : (personalization?.packagingProtectionCm?.standard ?? 0);
+      const packagingProtectionCm = getPackagingProtectionUsed(undefined);
+
+      const costToleranceNumber = safeParseFloat(costTolerance, 1);
 
       const results = await fetchShippingRates(
         originCep,
@@ -306,35 +329,42 @@ const ShippingCalculator = () => {
         weight,
         insuranceValue,
         deviationRange,
-        parseFloat(costTolerance),
+        costToleranceNumber,
         (progress, completed, total) => {
           setProgress(progress);
           setCompletedRequests(completed);
           setTotalRequests(total);
         },
-        personalization?.operationalCosts,
+        personalization?.operationalCosts as any,
         packagingProtectionCm
       );
 
       const timestamp = new Date().toISOString();
-      const queryRef = firebase.database().ref('queries').push();
-      await queryRef.set({
+
+      const queryToSave = {
         originCep,
         destinationCep: cep,
-        dimensions: { length, width, height },
-        weight,
-        insuranceValue,
+        dimensions: {
+          length: safeParseFloat(length, 0),
+          width: safeParseFloat(width, 0),
+          height: safeParseFloat(height, 0),
+        },
+        weight: safeParseFloat(weight, 0),
+        insuranceValue: safeParseFloat(insuranceValue, 0),
         timestamp,
         deviationRange,
-        costTolerance: parseFloat(costTolerance),
-        sensitiveProduct,
+        costTolerance: costToleranceNumber,
+        protectionMode,
         note: `Simulação por baldeação (${cep})`,
-      });
+      };
+
+      const queryRef = firebase.database().ref('queries').push();
+      await queryRef.set(queryToSave);
 
       navigation.navigate('Results', {
         results,
         deviationRange,
-        costTolerance: parseFloat(costTolerance),
+        costTolerance: costToleranceNumber,
       } as never);
     } catch (error) {
       console.error('Erro ao simular baldeação:', error);
@@ -354,10 +384,14 @@ const ShippingCalculator = () => {
     }));
   };
 
+  // Proteção switches: tornar mutuamente exclusivos
+  const toggleNormal = (val: boolean) => setProtectionMode(val ? 'normal' : (protectionMode === 'normal' ? 'none' : protectionMode));
+  const toggleExtra = (val: boolean) => setProtectionMode(val ? 'extra' : (protectionMode === 'extra' ? 'none' : protectionMode));
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
       <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} keyboardShouldPersistTaps="handled">
-        {/* UI igual à versão anterior (inputs, sliders etc.) */}
+        {/* CEPs lado a lado */}
         <View style={styles.row}>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>CEP de Origem</Text>
@@ -388,6 +422,7 @@ const ShippingCalculator = () => {
           </View>
         </View>
 
+        {/* Dimensões lado a lado */}
         <View style={styles.dimensionsRow}>
         <View style={styles.dimensionGroup}>
           <Text style={styles.label}>Comprimento</Text>
@@ -462,9 +497,19 @@ const ShippingCalculator = () => {
           </View>
         </View>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 8 }}>
-          <Text style={{ flex: 1 }}>Produto sensível (aplica proteção em cm)</Text>
-          <Switch value={sensitiveProduct} onValueChange={setSensitiveProduct} />
+        {/* Proteção - label e switches na mesma linha */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, justifyContent: 'space-between' }}>
+          <Text style={[styles.label, { marginTop: 0 }]}>Proteção</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 20 }}>
+              <Switch value={protectionMode === 'normal'} onValueChange={toggleNormal} />
+              <Text style={{ marginLeft: 8 }}>Normal</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Switch value={protectionMode === 'extra'} onValueChange={toggleExtra} />
+              <Text style={{ marginLeft: 8 }}>Extra</Text>
+            </View>
+          </View>
         </View>
 
         <Text style={styles.label}>Tolerância de Custo</Text>

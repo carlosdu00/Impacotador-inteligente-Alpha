@@ -86,6 +86,32 @@ const mapItemToShippingRate = (
 };
 
 /**
+ * Normaliza um valor de operational cost vindo de várias possíveis formas:
+ * - number -> retorna number
+ * - string -> tenta parseFloat
+ * - { operationalCost: ... } -> pega a propriedade
+ * - qualquer outro -> 0
+ */
+const normalizeOperationalCostValue = (op: any): number => {
+  if (op == null) return 0;
+  if (typeof op === 'number') {
+    return Number.isFinite(op) ? op : 0;
+  }
+  if (typeof op === 'string') {
+    const parsed = parseFloat(op.replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  if (typeof op === 'object') {
+    // pode ser { operationalCost: '12.00', samplePrice: ... } ou { operationalCost: 12 }
+    const candidate = op.operationalCost ?? op.operational_cost ?? op.value ?? undefined;
+    if (candidate == null) return 0;
+    const parsed = typeof candidate === 'number' ? candidate : parseFloat(String(candidate).replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+/**
  * Se não houver uma tabela /operationalCosts no Firebase, gera uma entrada inicial:
  * - roda uma simulação "qualquer" entre um CEP de Porto Alegre e um CEP de São Paulo
  * - coleta as transportadoras retornadas e salva em /operationalCosts com operationalCost = 0 e samplePrice
@@ -99,7 +125,16 @@ export const ensureOperationalCostsInDb = async (): Promise<Record<string, { ope
     const snapshot = await ref.once('value');
     const val = snapshot.val();
     if (val && Object.keys(val).length > 0) {
-      return val;
+      // garantir números
+      const normalized: Record<string, { operationalCost: number; samplePrice: number | null }> = {};
+      for (const k of Object.keys(val)) {
+        const raw = val[k];
+        const operationalCost = normalizeOperationalCostValue(raw?.operationalCost ?? raw);
+        const samplePriceRaw = raw?.samplePrice ?? raw?.sample_price ?? null;
+        const samplePrice = samplePriceRaw != null ? Number(samplePriceRaw) : null;
+        normalized[k] = { operationalCost, samplePrice: Number.isFinite(samplePrice) ? samplePrice : null };
+      }
+      return normalized;
     }
 
     // se não existe, rodar simulação entre Porto Alegre e São Paulo com medidas padrão
@@ -300,7 +335,7 @@ export const fetchShippingRates = async (
   deviationRange: DeviationRange,
   costTolerance: number,
   onProgress?: (progress: number, completedRequests: number, totalRequests: number) => void,
-  operationalCosts?: Record<string, number>, // valor monetário por transportadora (R$)
+  operationalCosts?: Record<string, any>, // aceitar any e normalizar
   packagingProtectionCm: number = 0
 ): Promise<ShippingRate[]> => {
   const originalDimensions = {
@@ -416,10 +451,18 @@ export const fetchShippingRates = async (
         // aplicar custo operacional monetário por transportadora (se informado)
         for (const it of mapped) {
           const carrierName = it.company?.name ?? '';
-          const op = operationalCosts?.[carrierName] ?? 0;
+          const opRaw = operationalCosts?.[carrierName];
+
+          const op = normalizeOperationalCostValue(opRaw);
+
           if (it.priceNumber != null) {
-            it.priceNumber = Number((it.priceNumber + op).toFixed(2));
-            it.price = it.priceNumber.toString();
+            // garantir number antes de toFixed
+            const base = Number(it.priceNumber);
+            const sum = Number.isFinite(base) ? base + op : op; // se base inválido, use op (previne NaN)
+            // agora sum é number, aplicar toFixed com cuidado
+            const rounded = Number.isFinite(sum) ? Number(sum.toFixed(2)) : sum;
+            it.priceNumber = rounded;
+            it.price = Number.isFinite(rounded) ? rounded.toFixed(2) : String(rounded);
           } else {
             it.priceNumber = undefined;
           }
@@ -466,7 +509,7 @@ export const fetchShippingRates = async (
     ...availableResults.map((it) => {
       const priceNumber = it.priceNumber;
       const { priceNumber: _, ...rest } = it as any;
-      return { ...rest, price: priceNumber !== undefined && priceNumber !== null ? priceNumber.toFixed(2) : rest.price } as ShippingRate;
+      return { ...rest, price: priceNumber !== undefined && priceNumber !== null ? Number(priceNumber).toFixed(2) : rest.price } as ShippingRate;
     }),
     ...unavailableResults.map((it) => {
       const { priceNumber: _, ...rest } = it as any;

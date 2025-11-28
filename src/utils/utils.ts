@@ -45,53 +45,6 @@ const normalizeResponseItems = (data: any) => {
   return items;
 };
 
-const mapItemToShippingRate = (
-  item: any,
-  deviation: { length: number; width: number; height: number },
-  originalDimensions: { length: number; width: number; height: number }
-): (ShippingRate & { priceNumber?: number }) => {
-  const originalVolume = originalDimensions.length * originalDimensions.width * originalDimensions.height;
-  const newVolume =
-    (originalDimensions.length + deviation.length) *
-    (originalDimensions.width + deviation.width) *
-    (originalDimensions.height + deviation.height);
-  const volumeGain = originalVolume > 0 ? ((newVolume - originalVolume) / originalVolume) * 100 : 0;
-
-  const priceStr = item.price !== undefined && item.price !== null ? String(item.price) : '';
-  const parsed = parseFloat(priceStr.replace(',', '.'));
-  const priceNumber = Number.isFinite(parsed) ? parsed : undefined;
-
-  return {
-    id: item.id ?? `${item.service_id ?? item.name ?? Math.random().toString(36).slice(2)}`,
-    name: item.name ?? item.service_name ?? 'Serviço',
-    company: {
-      name: item.company?.name ?? item.carrier_name ?? 'Transportadora',
-      picture: item.company?.picture ?? item.logo ?? '',
-    },
-    price: priceStr,
-    priceNumber,
-    error: item.error_message ?? item.error ?? undefined,
-    deviation,
-    totalSize:
-      deviation.length +
-      deviation.width +
-      deviation.height +
-      originalDimensions.length +
-      originalDimensions.width +
-      originalDimensions.height,
-    originalDimensions,
-    deliveryTime: item.delivery_time ?? item.estimated_delivery_time ?? undefined,
-    volumeGain,
-  } as any;
-};
-
-/**
- * Normaliza um valor de operational cost vindo de várias possíveis formas:
- * - number -> retorna number
- * - string -> tenta parseFloat
- * - { operationalCost: ... } -> pega a propriedade
- * - qualquer outro -> 0
- */
 const normalizeOperationalCostValue = (op: any): number => {
   if (op == null) return 0;
   if (typeof op === 'number') {
@@ -102,7 +55,6 @@ const normalizeOperationalCostValue = (op: any): number => {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   if (typeof op === 'object') {
-    // pode ser { operationalCost: '12.00', samplePrice: ... } ou { operationalCost: 12 }
     const candidate = op.operationalCost ?? op.operational_cost ?? op.value ?? undefined;
     if (candidate == null) return 0;
     const parsed = typeof candidate === 'number' ? candidate : parseFloat(String(candidate).replace(',', '.'));
@@ -111,21 +63,12 @@ const normalizeOperationalCostValue = (op: any): number => {
   return 0;
 };
 
-/**
- * Se não houver uma tabela /operationalCosts no Firebase, gera uma entrada inicial:
- * - roda uma simulação "qualquer" entre um CEP de Porto Alegre e um CEP de São Paulo
- * - coleta as transportadoras retornadas e salva em /operationalCosts com operationalCost = 0 e samplePrice
- *
- * Retorna o objeto salvo no banco no formato:
- * { [carrierName]: { operationalCost: number, samplePrice: number | null } }
- */
 export const ensureOperationalCostsInDb = async (): Promise<Record<string, { operationalCost: number; samplePrice: number | null }>> => {
   try {
     const ref = firebase.database().ref('/operationalCosts');
     const snapshot = await ref.once('value');
     const val = snapshot.val();
     if (val && Object.keys(val).length > 0) {
-      // garantir números
       const normalized: Record<string, { operationalCost: number; samplePrice: number | null }> = {};
       for (const k of Object.keys(val)) {
         const raw = val[k];
@@ -137,10 +80,9 @@ export const ensureOperationalCostsInDb = async (): Promise<Record<string, { ope
       return normalized;
     }
 
-    // se não existe, rodar simulação entre Porto Alegre e São Paulo com medidas padrão
-    const portoAlegreCep = '90010000'; // exemplo
-    const saoPauloCep = '01001000'; // exemplo
-
+    // Se não existe, faz uma chamada exemplo Porto Alegre -> São Paulo para coletar transportadoras
+    const portoAlegreCep = '90010000';
+    const saoPauloCep = '01001000';
     const length = 20;
     const width = 20;
     const height = 20;
@@ -188,9 +130,52 @@ export const ensureOperationalCostsInDb = async (): Promise<Record<string, { ope
 };
 
 /**
- * Faz uma única chamada ao endpoint de cálculo do MelhorEnvio com as dimensões recebidas
- * packagingProtectionCm é adicionado às 3 dimensões (em cm) antes de enviar a requisição.
- * Retenta em caso de 429/5xx com backoff simples.
+ * mapItemToShippingRate:
+ * - item: resposta do Melhor Envio
+ * - deviation: objeto {length,width,height} com a variação aplicada (apenas a variação)
+ * - baseOriginal: as medidas originais informadas pelo usuário (sem variação e sem proteção)
+ * - effectiveDimensions: as medidas efetivas enviadas na requisição (baseOriginal + deviation + proteção)
+ */
+const mapItemToShippingRate = (
+  item: any,
+  deviation: { length: number; width: number; height: number },
+  baseOriginal: { length: number; width: number; height: number },
+  effectiveDimensions: { length: number; width: number; height: number }
+): (ShippingRate & { priceNumber?: number }) => {
+  const originalVolume = baseOriginal.length * baseOriginal.width * baseOriginal.height;
+  const newVolume = effectiveDimensions.length * effectiveDimensions.width * effectiveDimensions.height;
+  const volumeGain = originalVolume > 0 ? ((newVolume - originalVolume) / originalVolume) * 100 : 0;
+
+  const priceStr = item.price !== undefined && item.price !== null ? String(item.price) : '';
+  const parsed = parseFloat(priceStr.replace(',', '.'));
+  const priceNumber = Number.isFinite(parsed) ? parsed : undefined;
+
+  const companyName = item.company?.name ?? item.carrier_name ?? 'Transportadora';
+
+  const totalSize = effectiveDimensions.length + effectiveDimensions.width + effectiveDimensions.height;
+
+  return {
+    id: item.id ?? `${item.service_id ?? item.name ?? Math.random().toString(36).slice(2)}`,
+    name: item.name ?? item.service_name ?? 'Serviço',
+    company: {
+      name: companyName,
+      picture: item.company?.picture ?? item.logo ?? '',
+    },
+    price: priceStr,
+    priceNumber,
+    error: item.error_message ?? item.error ?? undefined,
+    deviation,
+    totalSize,
+    originalDimensions: { ...baseOriginal }, // base original (sem variação nem proteção)
+    deliveryTime: item.delivery_time ?? item.estimated_delivery_time ?? undefined,
+    volumeGain,
+  } as any;
+};
+
+/**
+ * computeCheapestSingle: executa um cálculo simples para uma combinação de dimensões.
+ * packagingProtectionCm é somado às 3 dimensões (uma vez).
+ * Retorna o menor preço, os items mapeados e o prazo associado ao menor preço (se disponível).
  */
 export const computeCheapestSingle = async (
   originCep: string,
@@ -202,7 +187,7 @@ export const computeCheapestSingle = async (
   insuranceValue: number,
   packagingProtectionCm = 0,
   timeout = 20000
-): Promise<{ cheapestPrice: number | null; items: (ShippingRate & { priceNumber?: number })[] }> => {
+): Promise<{ cheapestPrice: number | null; cheapestDeliveryTime: number | null; items: (ShippingRate & { priceNumber?: number })[] }> => {
   const paddedLength = Math.max(1, length + packagingProtectionCm);
   const paddedWidth = Math.max(1, width + packagingProtectionCm);
   const paddedHeight = Math.max(1, height + packagingProtectionCm);
@@ -239,14 +224,31 @@ export const computeCheapestSingle = async (
     try {
       const response = await axios.post('https://www.melhorenvio.com.br/api/v2/me/shipment/calculate', payload, { headers, timeout });
       const rawItems = normalizeResponseItems(response.data);
-      const items = rawItems.map((item: any) => mapItemToShippingRate(item, { length: 0, width: 0, height: 0 }, { length: paddedLength, width: paddedWidth, height: paddedHeight }));
+
+      const items = rawItems.map((item: any) =>
+        mapItemToShippingRate(item, { length: 0, width: 0, height: 0 }, { length, width, height }, { length: paddedLength, width: paddedWidth, height: paddedHeight })
+      );
 
       requestTimestamps.push(Date.now());
 
-      const validPrices = items.map((i) => i.priceNumber).filter((p) => p != null) as number[];
-      const min = validPrices.length > 0 ? Math.min(...validPrices) : null;
+      const valid = items.filter((i) => i.priceNumber != null) as (ShippingRate & { priceNumber?: number })[];
+      if (valid.length === 0) {
+        return { cheapestPrice: null, cheapestDeliveryTime: null, items };
+      }
 
-      return { cheapestPrice: min, items };
+      let minPrice = Infinity;
+      let minDelivery: number | null = null;
+      for (const it of valid) {
+        const p = it.priceNumber ?? Infinity;
+        if (p < minPrice) {
+          minPrice = p;
+          // deliveryTime pode ser undefined -> tratar
+          const d = it.deliveryTime;
+          minDelivery = d != null ? Number(d) : null;
+        }
+      }
+
+      return { cheapestPrice: Number.isFinite(minPrice) ? minPrice : null, cheapestDeliveryTime: minDelivery, items };
     } catch (err: any) {
       lastError = err;
       attempts++;
@@ -263,13 +265,15 @@ export const computeCheapestSingle = async (
   }
 
   console.error('[computeCheapestSingle] erro após tentativas:', lastError?.message ?? lastError);
-  return { cheapestPrice: null, items: [] };
+  return { cheapestPrice: null, cheapestDeliveryTime: null, items: [] };
 };
 
 /**
- * Compara rotas via baldeações: para cada CEP de baldeação faz:
- *  custo_total = cheapest(origin -> baldeacao) + cheapest(baldeacao -> destination)
- * packagingProtectionCm é reaplicado em cada perna.
+ * computeBaldeacaoComparisons:
+ * - calcula a opção direta (origin -> destination)
+ * - para cada CEP de baldeação calcula leg1 (origin -> baldeação) e leg2 (baldeação -> destination)
+ * - retorna um objeto com:
+ *    { direct: { cheapestPrice, deliveryTime }, comparisons: [ { baldeacaoCep, totalPrice, totalDeliveryTime, leg1, leg2, isBetterThanDirect } ] }
  */
 export const computeBaldeacaoComparisons = async (
   originCep: string,
@@ -281,17 +285,18 @@ export const computeBaldeacaoComparisons = async (
   insuranceValue: number,
   baldeacoes: string[],
   packagingProtectionCm = 0
-): Promise<
-  {
+): Promise<{
+  direct: { cheapestPrice: number | null; deliveryTime: number | null };
+  comparisons: {
     baldeacaoCep: string;
     totalPrice: number | null;
-    leg1?: { cheapestPrice: number | null };
-    leg2?: { cheapestPrice: number | null };
+    totalDeliveryTime: number | null;
+    leg1?: { cheapestPrice: number | null; deliveryTime: number | null };
+    leg2?: { cheapestPrice: number | null; deliveryTime: number | null };
     isBetterThanDirect?: boolean;
-  }[]
-> => {
-  const results: any[] = [];
-
+  }[];
+}> => {
+  const comparisons: any[] = [];
   try {
     const direct = await computeCheapestSingle(originCep, destinationCep, length, width, height, weight, insuranceValue, packagingProtectionCm);
 
@@ -305,24 +310,36 @@ export const computeBaldeacaoComparisons = async (
       const total = (cheapest1 ?? Infinity) + (cheapest2 ?? Infinity);
       const totalNormalized = Number.isFinite(total) && total < Infinity ? Number((total).toFixed(2)) : null;
 
-      results.push({
+      // calcular prazo combinado (somar somente se ambos existirem)
+      const delivery1 = leg1.cheapestDeliveryTime;
+      const delivery2 = leg2.cheapestDeliveryTime;
+      const totalDeliveryTime = (delivery1 != null && delivery2 != null) ? (delivery1 + delivery2) : null;
+
+      comparisons.push({
         baldeacaoCep: b,
         totalPrice: totalNormalized,
-        leg1: { cheapestPrice: leg1.cheapestPrice ?? null },
-        leg2: { cheapestPrice: leg2.cheapestPrice ?? null },
+        totalDeliveryTime,
+        leg1: { cheapestPrice: leg1.cheapestPrice ?? null, deliveryTime: leg1.cheapestDeliveryTime ?? null },
+        leg2: { cheapestPrice: leg2.cheapestPrice ?? null, deliveryTime: leg2.cheapestDeliveryTime ?? null },
         isBetterThanDirect: (totalNormalized !== null && direct.cheapestPrice !== null) ? (totalNormalized < direct.cheapestPrice) : false,
       });
     }
+
+    return {
+      direct: { cheapestPrice: direct.cheapestPrice ?? null, deliveryTime: direct.cheapestDeliveryTime ?? null },
+      comparisons,
+    };
   } catch (err: any) {
     console.error('[computeBaldeacaoComparisons] erro', err?.message ?? err);
+    return { direct: { cheapestPrice: null, deliveryTime: null }, comparisons: [] };
   }
-
-  return results;
 };
 
 /**
- * Função principal fetchShippingRates — packagingProtectionCm em cm é adicionado às dimensões.
- * NOTE: operationalCosts agora é obtido por leitura externa (Personalization). Essa função NÃO altera a base de dados.
+ * fetchShippingRates (mantida como antes): função principal de simulações em grade.
+ * (não alterei aqui a interface que você já usa).
+ *
+ * NOTE: este arquivo já contém as funções necessárias para normalizar preços e aplicar operationalCosts.
  */
 export const fetchShippingRates = async (
   originCep: string,
@@ -335,10 +352,10 @@ export const fetchShippingRates = async (
   deviationRange: DeviationRange,
   costTolerance: number,
   onProgress?: (progress: number, completedRequests: number, totalRequests: number) => void,
-  operationalCosts?: Record<string, any>, // aceitar any e normalizar
+  operationalCosts?: Record<string, any>,
   packagingProtectionCm: number = 0
 ): Promise<ShippingRate[]> => {
-  const originalDimensions = {
+  const baseOriginalDimensions = {
     length: Number(length),
     width: Number(width),
     height: Number(height),
@@ -366,9 +383,9 @@ export const fetchShippingRates = async (
   for (const dL of lengthDeviations) {
     for (const dW of widthDeviations) {
       for (const dH of heightDeviations) {
-        const newL = Math.max(originalDimensions.length + dL + packagingProtectionCm, 1);
-        const newW = Math.max(originalDimensions.width + dW + packagingProtectionCm, 1);
-        const newH = Math.max(originalDimensions.height + dH + packagingProtectionCm, 1);
+        const newL = Math.max(baseOriginalDimensions.length + dL + packagingProtectionCm, 1);
+        const newW = Math.max(baseOriginalDimensions.width + dW + packagingProtectionCm, 1);
+        const newH = Math.max(baseOriginalDimensions.height + dH + packagingProtectionCm, 1);
 
         dimensionVariations.push({
           length: newL,
@@ -445,21 +462,17 @@ export const fetchShippingRates = async (
         const rawItems = normalizeResponseItems(response.data);
 
         const mapped = rawItems.map((item: any) =>
-          mapItemToShippingRate(item, dim.deviation, { length: dim.length, width: dim.width, height: dim.height })
+          mapItemToShippingRate(item, dim.deviation, baseOriginalDimensions, { length: dim.length, width: dim.width, height: dim.height })
         );
 
-        // aplicar custo operacional monetário por transportadora (se informado)
         for (const it of mapped) {
           const carrierName = it.company?.name ?? '';
           const opRaw = operationalCosts?.[carrierName];
-
           const op = normalizeOperationalCostValue(opRaw);
 
           if (it.priceNumber != null) {
-            // garantir number antes de toFixed
             const base = Number(it.priceNumber);
-            const sum = Number.isFinite(base) ? base + op : op; // se base inválido, use op (previne NaN)
-            // agora sum é number, aplicar toFixed com cuidado
+            const sum = Number.isFinite(base) ? base + op : op;
             const rounded = Number.isFinite(sum) ? Number(sum.toFixed(2)) : sum;
             it.priceNumber = rounded;
             it.price = Number.isFinite(rounded) ? rounded.toFixed(2) : String(rounded);

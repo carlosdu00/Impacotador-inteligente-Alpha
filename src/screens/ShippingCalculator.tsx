@@ -42,10 +42,6 @@ const defaultDeviationRange: DeviationRange = {
   height: { min: 0, max: 5 },
 };
 
-/**
- * Converte string para float e garante fallback numérico se inválido.
- * Retorna fallback se parse resultar em NaN.
- */
 const safeParseFloat = (value: string | number | undefined | null, fallback = 1): number => {
   if (value === null || value === undefined) return fallback;
   if (typeof value === 'number') {
@@ -79,6 +75,7 @@ const ShippingCalculator = () => {
 
   const [baldeacaoModalVisible, setBaldeacaoModalVisible] = useState(false);
   const [baldeacaoResults, setBaldeacaoResults] = useState<any[]>([]);
+  const [baldeacaoDirectInfo, setBaldeacaoDirectInfo] = useState<{ cheapestPrice: number | null; deliveryTime: number | null } | null>(null);
   const [baldeacaoLoading, setBaldeacaoLoading] = useState(false);
 
   useEffect(() => {
@@ -228,7 +225,6 @@ const ShippingCalculator = () => {
     try {
       const packagingProtectionCm = getPackagingProtectionUsed(currentPersonalization);
 
-      // Garantir costTolerance numérico seguro
       const costToleranceNumber = safeParseFloat(costTolerance, 1);
 
       const results = await fetchShippingRates(
@@ -252,7 +248,6 @@ const ShippingCalculator = () => {
 
       const timestamp = new Date().toISOString();
 
-      // Preparar objeto com números limpos para salvar no Firebase
       const queryToSave = {
         originCep,
         destinationCep: finalDestination,
@@ -291,7 +286,7 @@ const ShippingCalculator = () => {
     try {
       const packagingProtectionCm = getPackagingProtectionUsed(undefined);
 
-      const results = await computeBaldeacaoComparisons(
+      const result = await computeBaldeacaoComparisons(
         originCep,
         destinationCep,
         Number(length),
@@ -303,10 +298,14 @@ const ShippingCalculator = () => {
         packagingProtectionCm
       );
 
-      setBaldeacaoResults(results);
+      // result => { direct: {...}, comparisons: [...] }
+      setBaldeacaoDirectInfo(result.direct ?? { cheapestPrice: null, deliveryTime: null });
+      setBaldeacaoResults(result.comparisons ?? []);
     } catch (error) {
       console.error('Erro ao verificar baldeações:', error);
       Alert.alert('Erro', 'Ocorreu um erro ao verificar baldeações.');
+      setBaldeacaoResults([]);
+      setBaldeacaoDirectInfo(null);
     } finally {
       setBaldeacaoLoading(false);
     }
@@ -384,7 +383,6 @@ const ShippingCalculator = () => {
     }));
   };
 
-  // Proteção switches: tornar mutuamente exclusivos
   const toggleNormal = (val: boolean) => setProtectionMode(val ? 'normal' : (protectionMode === 'normal' ? 'none' : protectionMode));
   const toggleExtra = (val: boolean) => setProtectionMode(val ? 'extra' : (protectionMode === 'extra' ? 'none' : protectionMode));
 
@@ -577,9 +575,11 @@ const ShippingCalculator = () => {
           </TouchableOpacity>
         )}
 
+        {/* Modal de baldeações com opção original no topo */}
         <Modal visible={baldeacaoModalVisible} animationType="slide" onRequestClose={() => setBaldeacaoModalVisible(false)}>
           <View style={{ flex: 1, padding: 16 }}>
             <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>Baldeações</Text>
+
             {baldeacaoLoading ? (
               <View style={{ alignItems: 'center', marginTop: 30 }}>
                 <ActivityIndicator size="large" />
@@ -587,18 +587,43 @@ const ShippingCalculator = () => {
               </View>
             ) : (
               <>
+                {/* Opção original / direta no topo */}
+                <View style={[styles.baldeacaoItem, { backgroundColor: '#eef6ff', borderColor: '#b8dbff' }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: 'bold' }}>Opção Original (Direta)</Text>
+                    <Text>Destino: {destinationCep}</Text>
+                    <Text>
+                      Preço direto:{' '}
+                      {baldeacaoDirectInfo?.cheapestPrice != null ? `R$ ${Number(baldeacaoDirectInfo.cheapestPrice).toFixed(2)}` : 'Indisponível'}
+                    </Text>
+                    <Text>
+                      Prazo direto:{' '}
+                      {baldeacaoDirectInfo?.deliveryTime != null ? `${baldeacaoDirectInfo.deliveryTime} dias úteis` : 'Indisponível'}
+                    </Text>
+                  </View>
+                </View>
+
                 <FlatList
                   data={baldeacaoResults}
                   keyExtractor={(item) => item.baldeacaoCep}
                   renderItem={({ item }) => (
-                    <View style={styles.baldeacaoItem}>
+                    <View style={[styles.baldeacaoItem, item.isBetterThanDirect ? { borderColor: '#28a745', backgroundColor: '#eefdea' } : undefined]}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontWeight: 'bold' }}>{item.baldeacaoCep}</Text>
-                        <Text>Preço combinado: {item.totalPrice !== null ? `R$ ${item.totalPrice.toFixed(2)}` : 'Indisponível'}</Text>
-                        <Text>Melhor que direto: {item.isBetterThanDirect ? 'Sim' : 'Não'}</Text>
+                        <Text>Preço combinado: {item.totalPrice != null ? `R$ ${Number(item.totalPrice).toFixed(2)}` : 'Indisponível'}</Text>
+                        <Text>
+                          Prazo combinado:{' '}
+                          {item.totalDeliveryTime != null ? `${item.totalDeliveryTime} dias úteis` : 'Indisponível'}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#555' }}>
+                          (Rota 1: {item.leg1?.cheapestPrice != null ? `R$ ${Number(item.leg1.cheapestPrice).toFixed(2)}` : '—'} / prazo: {item.leg1?.deliveryTime != null ? `${item.leg1.deliveryTime} dias` : '—'})
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#555' }}>
+                          (Rota 2: {item.leg2?.cheapestPrice != null ? `R$ ${Number(item.leg2.cheapestPrice).toFixed(2)}` : '—'} / prazo: {item.leg2?.deliveryTime != null ? `${item.leg2.deliveryTime} dias` : '—'})
+                        </Text>
                       </View>
-                      <View style={{ justifyContent: 'center' }}>
-                        {item.isBetterThanDirect && <Text style={{ color: 'green', fontWeight: 'bold' }}>✔ Mais barato</Text>}
+                      <View style={{ justifyContent: 'center', alignItems: 'flex-end' }}>
+                        {item.isBetterThanDirect && <Text style={{ color: 'green', fontWeight: 'bold', marginBottom: 6 }}>✔ Mais barato</Text>}
                         <TouchableOpacity style={styles.simulateButton} onPress={() => selectBaldeacaoAndSimulate(item.baldeacaoCep)}>
                           <Text style={{ color: '#fff' }}>Simular</Text>
                         </TouchableOpacity>
@@ -620,6 +645,7 @@ const ShippingCalculator = () => {
 };
 
 const styles = StyleSheet.create({
+  // copiar os estilos do seu arquivo atual (mantive os principais usados na modal)
   container: {
     flex: 1,
     padding: 20,
